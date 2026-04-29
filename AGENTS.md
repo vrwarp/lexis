@@ -11,19 +11,29 @@ These agents run once at the beginning of a project.
     - **Output**: `notes/contents.json`.
 2.  **Style Analyzer (`style-analyzer`)**
     - **Description**: Defines the author's voice and translation strategy.
-    - **Dependencies**: `toc-generator` (`notes/contents.json`).
+    - **Dependencies**: 
+        - `toc-generator` (`notes/contents.json`)
+        - **Sampled sections** from the `original/` folder.
     - **Output**: `notes/style_guide.md`.
+3.  **Metadata Generator (`metadata-generator`)**
+    - **Description**: Identifies source/target languages and audience profiles.
+    - **Dependencies**: 
+        - `toc-generator` (`notes/contents.json`)
+        - **Sampled sections** from the `original/` folder.
+    - **Output**: `notes/metadata.json`.
 
 ## 2. Extraction Phase (Per-Section)
 Run these agents for each individual file in the `original/` folder.
 
 1.  **Narrative Summarizer (`narrative-summarizer`)**
     - **Description**: Extracts situational context and character dynamics.
-    - **Dependencies**: `toc-generator` (`notes/contents.json`).
+    - **Dependencies**: 
+        - `toc-generator` (`notes/contents.json`)
+        - Corresponding file in `original/` folder.
     - **Output**: `notes/<filename>.summary.txt`.
 2.  **Local Lexicographer (`local-lexicographer`)**
     - **Description**: Extracts terms requiring consistency.
-    - **Dependencies**: None.
+    - **Dependencies**: Corresponding file in `original/` folder.
     - **Output**: `notes/<filename>.lexicon.json`.
 
 ## 3. Consolidation Phase (Per-Section)
@@ -31,7 +41,9 @@ Must run after the Extraction Phase for a given section.
 
 1.  **Glossary Manager (`glossary-manager`)**
     - **Description**: Updates the master glossary with new terms and usage notes.
-    - **Dependencies**: `local-lexicographer` (`notes/<filename>.lexicon.json`).
+    - **Dependencies**: 
+        - `local-lexicographer` (`notes/<filename>.lexicon.json`)
+        - Corresponding file in `original/` folder.
     - **Output**: Updates `notes/master_glossary.json`.
 
 ## 4. Production Phase (Final Global Step)
@@ -48,4 +60,6 @@ The Primary Translator relies on the global context established by the entire bo
         - **Finalized** `notes/master_glossary.json`
         - `notes/contents.json`
         - `notes/style_guide.md`
+        - `notes/metadata.json`
+        - Corresponding file in `original/` folder.
     - **Output**: `translation/<filename>`.
