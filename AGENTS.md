@@ -42,7 +42,8 @@ Must run after the Extraction Phase for a given section.
 1.  **Glossary Manager (`glossary-manager`)**
     - **Description**: Updates the master glossary with new terms and usage notes.
     - **Dependencies**: 
-        - `local-lexicographer` (`notes/<filename>.lexicon.json`)
+        - `local-lexicographer` (`notes/<original file>.lexicon.json`)
+        - `metadata-generator` (`notes/metadata.json`)
         - Corresponding file in `original/` folder.
     - **Output**: Updates `notes/master_glossary.json`.
 
