@@ -34,14 +34,18 @@ Must run after the Extraction Phase for a given section.
     - **Dependencies**: `local-lexicographer` (`notes/<filename>.lexicon.json`).
     - **Output**: Updates `notes/master_glossary.json`.
 
-## 4. Production Phase (Per-Section)
-The final step, requiring all previous context to be ready.
+## 4. Production Phase (Final Global Step)
+**CRITICAL**: This phase must only be initiated after **ALL** sections have successfully completed the Extraction and Consolidation phases. 
+
+The Primary Translator relies on the global context established by the entire book. It is essential that:
+- The `master_glossary.json` is fully finalized and includes all terms from every section.
+- Every section has a corresponding `.summary.txt` available, allowing the translator to reference narrative arcs and continuity across the entire work.
 
 1.  **Primary Translator (`primary-translator`)**
     - **Description**: Produces the final natural-language translation.
     - **Dependencies**: 
-        - `narrative-summarizer` (`notes/<filename>.summary.txt`)
-        - `glossary-manager` (`notes/master_glossary.json`)
-        - `toc-generator` (`notes/contents.json`)
-        - `style-analyzer` (`notes/style_guide.md`)
+        - **All** section summaries (`notes/*.summary.txt`)
+        - **Finalized** `notes/master_glossary.json`
+        - `notes/contents.json`
+        - `notes/style_guide.md`
     - **Output**: `translation/<filename>`.
