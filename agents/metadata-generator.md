@@ -1,5 +1,6 @@
 ---
 name: metadata-generator
+timeout_mins: 60
 description: Defines the project's linguistic and demographic parameters, including source/target languages and audience.
 tools: 
   - "*"

@@ -1,5 +1,6 @@
 ---
 name: local-lexicographer
+timeout_mins: 60
 description: Extracts proper nouns, pronouns, and unique vocabulary requiring strict consistency tracking.
 tools: 
   - "*"

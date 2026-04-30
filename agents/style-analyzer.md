@@ -1,5 +1,6 @@
 ---
 name: style-analyzer
+timeout_mins: 60
 description: Analyzes a sample of the book's narrative to define the author's style and provide translation strategies.
 tools: 
   - "*"

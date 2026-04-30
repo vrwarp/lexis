@@ -1,5 +1,6 @@
 ---
 name: narrative-summarizer
+timeout_mins: 60
 description: Analyzes text to extract structural and situational context for translation.
 tools: 
   - "*"

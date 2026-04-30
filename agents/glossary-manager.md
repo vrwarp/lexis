@@ -1,5 +1,6 @@
 ---
 name: glossary-manager
+timeout_mins: 60
 description: Maintains translation consistency by cross-referencing new terms against a master glossary.
 tools: 
   - "*"

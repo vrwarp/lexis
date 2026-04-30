@@ -1,5 +1,6 @@
 ---
 name: toc-generator
+timeout_mins: 60
 description: Analyzes the original source files to create a sequenced table of contents mapping.
 tools: 
   - "*"
