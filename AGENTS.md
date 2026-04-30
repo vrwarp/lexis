@@ -47,20 +47,29 @@ Must run after the Extraction Phase for a given section.
         - Corresponding file in `original/` folder.
     - **Output**: Updates `notes/master_glossary.json`.
 
-## 4. Production Phase (Final Global Step)
-**CRITICAL**: This phase must only be initiated after **ALL** sections have successfully completed the Extraction and Consolidation phases. 
+## 4. Production Phase (Multi-Stage Refinement)
+**CRITICAL**: This phase must only be initiated after **ALL** sections have successfully completed the Extraction and Consolidation phases (1, 2, and 3). This ensures the `master_glossary.json` and all narrative summaries are fully finalized.
 
-The Primary Translator relies on the global context established by the entire book. It is essential that:
-- The `master_glossary.json` is fully finalized and includes all terms from every section.
-- Every section has a corresponding `.summary.txt` available, allowing the translator to reference narrative arcs and continuity across the entire work.
-
+### 4.1. Draft Stage
 1.  **Primary Translator (`primary-translator`)**
-    - **Description**: Produces the final natural-language translation.
+    - **Description**: Produces the initial high-fidelity draft.
     - **Dependencies**: 
-        - **All** section summaries (`notes/*.summary.txt`)
-        - **Finalized** `notes/master_glossary.json`
-        - `notes/contents.json`
-        - `notes/style_guide.md`
-        - `notes/metadata.json`
-        - Corresponding file in `original/` folder.
-    - **Output**: `translation/<filename>`.
+        - **Global**: `master_glossary.json` (Final), `style_guide.md`, `metadata.json`, `contents.json`, and **all** `notes/*.summary.txt`.
+        - **Local**: Corresponding file in `original/`.
+    - **Output**: `draft/<filename>`.
+
+### 4.2. Refinement Stage
+1.  **Native Critique (`native-critique`)**
+    - **Description**: Evaluates the draft for natural flow and audience alignment.
+    - **Dependencies**: 
+        - **Local**: `draft/<filename>`.
+        - **Global**: `notes/metadata.json`.
+    - **Output**: `critique/<filename>.critique.md`.
+
+### 4.3. Finalization Stage
+1.  **Final Translator (`final-translator`)**
+    - **Description**: Consolidates the original, draft, and critique into the final version.
+    - **Dependencies**: 
+        - **Local**: `original/<filename>`, `draft/<filename>`, `critique/<filename>.critique.md`, and `notes/<filename>.summary.txt`.
+        - **Global**: `master_glossary.json`, `style_guide.md`, `metadata.json`, `contents.json`.
+    - **Output**: `final/<filename>`.
