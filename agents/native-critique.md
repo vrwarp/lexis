@@ -1,6 +1,6 @@
 ---
 name: native-critique
-model: gemini-3.1-pro
+model: gemini-3-pro-preview
 timeout_mins: 60
 description: Critiques a draft translation for "native-ness" and audience alignment.
 tools: 
