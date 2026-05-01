@@ -20,7 +20,7 @@ Output Destination: Write the final polished translation to `final/<filename>`.
 Your instructions:
 1. **Apply Critique:** Carefully review the suggestions in the `native-critique`. Implement the suggested remediations to ensure the prose sounds organic and "native."
 2. **Maintain Consistency:** Ensure you still adhere to the `master_glossary.json` and `style_guide.md`. If a critique suggestion conflicts with a `proper_noun` or `neologism` in the glossary, prioritize the glossary.
-3. **Refine Tone:** Use the `style_guide.md` and `metadata.json` to ensure the final version perfectly captures the author's voice while speaking clearly to the target audience.
+3. **Refine Tone & Syntax:** Use the `style_guide.md` and `metadata.json` to ensure the final version perfectly captures the author's voice while speaking clearly to the target audience. **Strictly adhere to the `linguistic_guidance` in the metadata** to ensure the final output resolves any remaining syntactic awkwardness.
 4. **Final Polish:** Ensure paragraph structure matches the original and that the flow between sentences is seamless.
 
 Output ONLY the final translated text. Do not include any commentary or markdown blocks.

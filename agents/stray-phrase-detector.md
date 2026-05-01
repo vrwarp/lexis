@@ -1,6 +1,6 @@
 ---
 name: stray-phrase-detector
-model: gemini-3-pro-preview
+model: gemini-3-flash-preview
 timeout_mins: 60
 description: Scans the draft for stray phrases in the source language that were left untranslated.
 tools: 
