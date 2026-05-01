@@ -2,6 +2,11 @@
 
 This document outlines the execution order, responsibilities, and dependencies of the agents in the `lexis` translation pipeline.
 
+## 0. Preparation Phase
+1.  **Ebook Disbinder (`ebook-disbinder`)**
+    - **Description**: Extracts the source `.epub` into the `original/` folder and verifies structure.
+    - **Output**: Populated `original/` directory.
+
 ## 1. Initialization Phase (Global Context)
 These agents run once at the beginning of a project.
 
@@ -90,3 +95,11 @@ Must run after the Extraction Phase for a given section.
         - **Local**: `original/<filename>`, `draft/<filename>`, `critique/<filename>.critique.md`, and `notes/<filename>.summary.txt`.
         - **Global**: `master_glossary.json`, `style_guide.md`, `metadata.json`, `contents.json`.
     - **Output**: `final/<filename>`.
+
+## 5. Finalization Phase (Packaging)
+1.  **Ebook Packager (`ebook-packager`)**
+    - **Description**: Synchronizes assets, localizes structural metadata, and packages the `final/` folder into a valid `.epub`.
+    - **Dependencies**: 
+        - **Global**: `master_glossary.json`, `contents.json`, `metadata.json`.
+        - **Local**: All files in `original/` and `final/`.
+    - **Output**: `translated_book.epub`.
