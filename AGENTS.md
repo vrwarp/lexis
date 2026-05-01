@@ -58,17 +58,34 @@ Must run after the Extraction Phase for a given section.
         - **Local**: Corresponding file in `original/`.
     - **Output**: `draft/<filename>`.
 
-### 4.2. Refinement Stage
-1.  **Native Critique (`native-critique`)**
-    - **Description**: Evaluates the draft for natural flow and audience alignment.
+### 4.2. Validation Stage (Iterative Loop)
+**NOTE**: The agents in this stage should alternate until the `stray-phrase-detector` reports a `"status": "CLEAN"`.
+
+1.  **Stray Phrase Detector (`stray-phrase-detector`)**
+    - **Description**: Scans the draft for accidental source-language phrases. Uses regex optimizations for script-mismatch projects.
     - **Dependencies**: 
         - **Local**: `draft/<filename>`.
         - **Global**: `notes/metadata.json`.
+    - **Output**: `notes/<filename>.stray_report.json`.
+
+2.  **Stray Phrase Fixer (`stray-phrase-fixer`)**
+    - **Description**: Translates identified stray phrases to ensure 100% coverage.
+    - **Dependencies**: 
+        - **Local**: `original/<filename>`, `draft/<filename>`, `notes/<filename>.stray_report.json`, and `notes/<filename>.summary.txt`.
+        - **Global**: `master_glossary.json`, `style_guide.md`, `metadata.json`, `contents.json`.
+    - **Output**: Updates `draft/<filename>`.
+
+### 4.3. Refinement Stage
+1.  **Native Critique (`native-critique`)**
+    - **Description**: Evaluates the cleaned draft for natural flow and audience alignment.
+    - **Dependencies**: 
+        - **Local**: `draft/<filename>` (Post-Validation).
+        - **Global**: `notes/metadata.json`.
     - **Output**: `critique/<filename>.critique.md`.
 
-### 4.3. Finalization Stage
+### 4.4. Finalization Stage
 1.  **Final Translator (`final-translator`)**
-    - **Description**: Consolidates the original, draft, and critique into the final version.
+    - **Description**: Consolidates the original, validated draft, and critique into the final version.
     - **Dependencies**: 
         - **Local**: `original/<filename>`, `draft/<filename>`, `critique/<filename>.critique.md`, and `notes/<filename>.summary.txt`.
         - **Global**: `master_glossary.json`, `style_guide.md`, `metadata.json`, `contents.json`.
