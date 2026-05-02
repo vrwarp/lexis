@@ -2,6 +2,14 @@
 
 This document outlines the execution order, responsibilities, and dependencies of the agents in the `lexis` translation pipeline.
 
+## Core Mandate: Sequential Processing
+**DO NOT BATCH CHAPTERS.** To maintain narrative continuity and lexical integrity—and to **prevent overwhelming the subagents' context and processing capacity**—chapters must be processed **one at a time** within their respective stages:
+
+1.  **Stage A (Phases 2 & 3):** Process Chapter 1, then Chapter 2, and so on through the Extraction and Consolidation phases. This builds the `master_glossary.json` and narrative summaries incrementally.
+2.  **Stage B (Phase 4):** Once **ALL** chapters have completed Stage A, begin processing chapters one-by-one through the Production Phase (Draft -> Validation -> Refinement -> Finalization). This allows each translation to reference the specific finalized context of the preceding chapters.
+
+Do not initiate Phase 4 for any chapter until the global context is fully established. Do not initiate Phase 4 for Chapter N+1 until Chapter N has completed its entire Production lifecycle.
+
 ## 0. Preparation Phase
 1.  **Ebook Disbinder (`ebook-disbinder`)**
     - **Description**: Extracts the source `.epub` into the `original/` folder and verifies structure.
