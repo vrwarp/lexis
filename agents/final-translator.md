@@ -1,6 +1,6 @@
 ---
 name: final-translator
-model: gemini-3-flash-preview
+model: gemini-3-pro-preview
 timeout_mins: 60
 description: Consolidates the original, draft, and critique into a final polished translation.
 tools: 
