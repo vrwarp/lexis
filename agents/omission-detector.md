@@ -1,6 +1,6 @@
 ---
 name: omission-detector
-model: gemini-3-pro-preview
+model: gemini-3-flash-preview
 timeout_mins: 60
 description: Compares the original and draft text to identify accidental omissions or missing segments.
 tools: 
