@@ -1,6 +1,6 @@
 ---
 name: primary-translator
-model: gemini-3-flash-preview
+model: gemini-3-pro-preview
 timeout_mins: 60
 description: Translates text using narrative context and a strict master glossary.
 tools: 
