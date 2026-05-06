@@ -39,11 +39,11 @@ These agents run once at the beginning of a project.
 Run these agents for each individual file in the `original/` folder.
 
 1.  **Narrative Summarizer (`narrative-summarizer`)**
-    - **Description**: Extracts situational context and character dynamics.
+    - **Description**: Extracts situational context, character dynamics, and linguistic challenges.
     - **Dependencies**: 
         - `toc-generator` (`notes/contents.json`)
         - Corresponding file in `original/` folder.
-    - **Output**: `notes/<filename>.summary.txt`.
+    - **Output**: `notes/<filename>.summary.txt` and `notes/<filename>.challenges.md`.
 2.  **Local Lexicographer (`local-lexicographer`)**
     - **Description**: Extracts terms requiring consistency.
     - **Dependencies**: Corresponding file in `original/` folder.
@@ -70,7 +70,7 @@ Must run after the Extraction Phase for a given section.
     - **Description**: Produces or refines the initial high-fidelity draft.
     - **Dependencies**: 
         - **Global**: `master_glossary.json` (Final), `style_guide.md`, `metadata.json`, `contents.json`, and **all** `notes/*.summary.txt`.
-        - **Local**: `original/<filename>`, and optionally `notes/<filename>.omission_report.md`.
+        - **Local**: `original/<filename>`, `notes/<filename>.challenges.md`, and optionally `notes/<filename>.omission_report.md`.
     - **Output**: `draft/<filename>`.
 
 2.  **Omission Detector (`omission-detector`)**
@@ -91,7 +91,7 @@ Must run after the Extraction Phase for a given section.
 2.  **Stray Phrase Fixer (`stray-phrase-fixer`)**
     - **Description**: Translates identified stray phrases to ensure 100% coverage.
     - **Dependencies**: 
-        - **Local**: `original/<filename>`, `draft/<filename>`, `notes/<filename>.stray_report.json`, and `notes/<filename>.summary.txt`.
+        - **Local**: `original/<filename>`, `draft/<filename>`, `notes/<filename>.stray_report.json`, `notes/<filename>.summary.txt`, and `notes/<filename>.challenges.md`.
         - **Global**: `master_glossary.json`, `style_guide.md`, `metadata.json`, `contents.json`.
     - **Output**: Updates `draft/<filename>`.
 
@@ -107,7 +107,7 @@ Must run after the Extraction Phase for a given section.
 1.  **Final Translator (`final-translator`)**
     - **Description**: Consolidates the original, validated draft, and critique into the final version.
     - **Dependencies**: 
-        - **Local**: `original/<filename>`, `draft/<filename>`, `critique/<filename>.critique.md`, and `notes/<filename>.summary.txt`.
+        - **Local**: `original/<filename>`, `draft/<filename>`, `critique/<filename>.critique.md`, `notes/<filename>.summary.txt`, and `notes/<filename>.challenges.md`.
         - **Global**: `master_glossary.json`, `style_guide.md`, `metadata.json`, `contents.json`.
     - **Output**: `final/<filename>`.
 
