@@ -64,19 +64,19 @@ Must run after the Extraction Phase for a given section.
 **CRITICAL**: This phase must only be initiated after **ALL** sections have successfully completed the Extraction and Consolidation phases (1, 2, and 3). This ensures the `master_glossary.json` and all narrative summaries are fully finalized.
 
 ### 4.1. Draft Stage (Iterative Loop)
-**NOTE**: Steps 1 and 2 should alternate until the `omission-detector` reports a `"status": "COMPLETE"`.
+**NOTE**: Steps 1 and 2 should alternate until the `omission-detector` reports `STATUS: COMPLETE`.
 
 1.  **Primary Translator (`primary-translator`)**
     - **Description**: Produces or refines the initial high-fidelity draft.
     - **Dependencies**: 
         - **Global**: `master_glossary.json` (Final), `style_guide.md`, `metadata.json`, `contents.json`, and **all** `notes/*.summary.txt`.
-        - **Local**: `original/<filename>`, and optionally `notes/<filename>.omission_report.json`.
+        - **Local**: `original/<filename>`, and optionally `notes/<filename>.omission_report.md`.
     - **Output**: `draft/<filename>`.
 
 2.  **Omission Detector (`omission-detector`)**
     - **Description**: Meticulously audits the draft against the original to identify skipped content.
     - **Dependencies**: `original/<filename>`, `draft/<filename>`.
-    - **Output**: `notes/<filename>.omission_report.json`.
+    - **Output**: `notes/<filename>.omission_report.md`.
 
 ### 4.2. Validation Stage (Iterative Loop)
 **NOTE**: The agents in this stage should alternate until the `stray-phrase-detector` reports a `"status": "CLEAN"`.
