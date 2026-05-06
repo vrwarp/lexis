@@ -112,6 +112,8 @@ Must run after the Extraction Phase for a given section.
     - **Output**: `final/<filename>`.
 
 ## 5. Finalization Phase (Packaging)
+**MANDATORY**: Before executing the `ebook-packager`, the orchestrator MUST present a summary of the project (e.g., file completion status, localized metadata) to the user and obtain explicit confirmation to proceed.
+
 1.  **Ebook Packager (`ebook-packager`)**
     - **Description**: Synchronizes assets, localizes structural metadata, and packages the `final/` folder into a valid `.epub`.
     - **Dependencies**: 
