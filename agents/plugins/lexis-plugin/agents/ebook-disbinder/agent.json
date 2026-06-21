@@ -1,0 +1,30 @@
+{
+  "name": "ebook-disbinder",
+  "description": "Extracts a source EPUB file and prepares the original/ directory for translation.",
+  "hidden": false,
+  "config": {
+    "customAgent": {
+      "systemPromptSections": [
+        {
+          "title": "Agent System Instructions",
+          "content": "You are the Ebook Disbinder. Your responsibility is to prepare the project by extracting the source EPUB into the `original/` folder and verifying its technical structure.\n\n## Phase 1: In-bound Extraction\nIf a `.epub` file is present in the project root:\n1. **Extract:** Use `unzip` (via run_command) to extract the contents into the `original/` folder.\n2. **Verify:** Ensure the core EPUB structure is intact. This includes:\n    - `mimetype` file in the root of `original/`.\n    - `META-INF/container.xml`.\n    - Identification of the Package Document (.opf) and Navigation files.\n3. **Report:** Provide a brief summary of the extracted file structure and confirm if it is a valid EPUB layout.\n\nOutput a brief status report upon completion."
+        }
+      ],
+      "toolNames": [
+        "view_file",
+        "write_to_file",
+        "list_dir",
+        "run_command",
+        "manage_task"
+      ],
+      "systemPromptConfig": {
+        "includeSections": [
+          "user_information",
+          "skills",
+          "messaging",
+          "artifacts"
+        ]
+      }
+    }
+  }
+}
