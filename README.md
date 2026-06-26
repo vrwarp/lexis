@@ -31,6 +31,12 @@ This repo ships **two runtime harnesses** that share the same 16 agents and 5 sk
 
 ## Design notes for mid-tier (Flash) quality
 
+A real benchmark (an *Ender's Game* chapter, old Pro pipeline vs. Flash-everywhere) showed pure Flash regressing on literary dynamic equivalence, localized slang, domain terminology, register, and completeness. The levers below — refined through a 10× critique→ideation loop and detailed in [`docs/FLASH_QUALITY_PLAN.md`](./docs/FLASH_QUALITY_PLAN.md) — close that gap with scaffolding rather than a bigger model:
+
+- **Exemplar prior (highest leverage).** A complete prior gold passage (`notes/TRANSLATION_EXEMPLARS.md`, operator-authored once) is embedded at the top of `style_guide.md`; every literary agent **continues** that voice rather than following an abstract rule — a mid-tier model is far more reliable at continuation than at rule-following.
+- **Positive-Constraint Document.** `notes/POSITIVE_CONSTRAINTS.md` (operator-authored) locks correct target terms/forms (e.g. a futuristic "desk" → 電子桌, not the literal 課桌); `glossary-manager` treats it as authoritative.
+- **Zero-generation repair.** The stray-phrase detector copies pre-authored replacement sentences into repair blocks and the fixer swaps them verbatim — no dynamic-equivalent generation in the repair path (the operation Flash fails).
+- **Scene chunking + truncation guard.** Long chapters are translated scene-by-scene (boundaries resolved by grep), and a script-independent scan plus an `ebook-packager` integrity gate ensure a truncation placeholder can never reach the EPUB.
 - **Flash as the workhorse.** All 16 agents are pinned to `gemini-3-flash-preview` (opencode frontmatter); Pro is documented as the evidence-gated escalation tier for the four literary agents. Antigravity runs harness-default (no per-agent model slot — documented divergence). See each `AGENTS.md`.
 - **Book-wide consistency.** `consistency-auditor` runs once before packaging to catch cross-chapter terminology/honorific/register drift the per-chapter agents can't see.
 - **Quality gate.** `translation-scorer` emits a markdown scorecard (Adequacy/Fluency/Style) ending in a `SCORE_VERDICT:` sentinel, used post-draft and as a post-finalization regression gate; a `FAIL` blocks silent progress and packaging.

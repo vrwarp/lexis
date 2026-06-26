@@ -6,6 +6,20 @@
 >
 > This is a design proposal. The book-specific authored assets it references (the exemplar passages, the term table + replacement-sentence templates) are one-time curation (free where Sample 1 exists; otherwise one Pro pass per register regime). See `docs/LOOP_LEDGER.md` lineage and `docs/REDESIGN.md` for the surrounding architecture.
 
+## Implementation status (as of this branch)
+
+The **top-5 mechanism is implemented** across both harnesses (pipeline machinery only; the book-specific assets are operator-authored — see below):
+
+- ✅ **#1 Exemplar prior** — `style-analyzer` embeds `notes/TRANSLATION_EXEMPLARS.md` at the top of `style_guide.md`; `primary-translator`/`final-translator`/`native-critique`/`stray-phrase-fixer` continue that voice.
+- ✅ **#2 Scene chunking** — `narrative-summarizer` emits `notes/<f>.scenes.md`; orchestrator Step 4.0a resolves boundaries by grep and drafts scene-by-scene; never falls back to one-shot.
+- ✅ **#3 Positive-Constraint Document** — `glossary-manager` reconciles `notes/POSITIVE_CONSTRAINTS.md` as authoritative.
+- ✅ **#4 Zero-generation repair** — `stray-phrase-detector` emits repair blocks copying pre-authored replacement sentences; `stray-phrase-fixer` swaps verbatim.
+- ✅ **#5 Truncation routing** — detector `STATUS: TRUNCATION_ARTIFACT` (CJK-aware) + orchestrator scene-retry + `ebook-packager` pre-packaging integrity gate.
+
+**Decisions taken:** stay Flash-everywhere (Pro re-pin declined); items #6–#10 (best-of-N, positive-presence gates, native-critique-as-diff beyond the exemplar reference, Pro escalation) are **not** implemented and remain documented future work.
+
+**Operator action required to realize the gains:** author `notes/TRANSLATION_EXEMPLARS.md` (2-3 gold passages) and `notes/POSITIVE_CONSTRAINTS.md` (locked term table) once per book — see the `lexical-management` skill §5. Without them the mechanism runs but degrades gracefully to the prior behavior.
+
 ---
 
 # Making lexis Flash-Everywhere Match the Pro Benchmark — Final Deliverable
