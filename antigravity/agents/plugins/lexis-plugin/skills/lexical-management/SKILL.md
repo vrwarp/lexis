@@ -1,6 +1,6 @@
 ---
 name: lexical-management
-description: Procedures for extracting and managing lexical context, including Table of Contents (TOC) extraction, project metadata, local lexicon JSON generation, and master glossary updates. Trigger this skill whenever you deal with glossary synchronization, term extraction, metadata creation, or table of contents generation.
+description: Procedures for extracting and managing lexical context, including Table of Contents (TOC) extraction, project metadata, local lexicon extraction, and master glossary updates. Trigger this skill whenever you deal with glossary synchronization, term extraction, metadata creation, or table of contents generation.
 ---
 
 # Lexical & Glossary Management Skill
@@ -17,11 +17,16 @@ Detailed guidelines for establishing the linguistic infrastructure and maintaini
 - Sample 3-5 middle chapters to extract author's stylistic fingerprint, generating `notes/style_guide.md`.
 
 ## 3. Local Lexicon Extraction
-For each section, parse raw content to identify proper nouns, neologisms, slang, and metaphors. Save under `notes/<filename>.lexicon.json` with:
-- `term`
-- `example_sentence`
-- `usage_notes` (detailing emotional intent and context)
-- `category` (`proper_noun`, `neologism`, `idiom`, `slang`)
+For each section, parse raw content to identify proper nouns, neologisms, slang, and metaphors. Save under `notes/<filename>.lexicon.md` in Markdown format, beginning with `STATUS: COMPLETE`. Each entry uses the structure:
+
+```markdown
+## Term: <term>
+- **Category:** <category>  (one of: proper_noun, neologism, idiom, slang)
+- **Example Sentence:** "<exact sentence>"
+- **Usage Notes:** <notes detailing emotional intent and context>
+```
+
+Markdown format is required over raw JSON to avoid Flash-model parse failures that would be indistinguishable from agent failure.
 
 ## 4. Master Glossary Consolidation
 Update `notes/master_glossary.json` using the local lexicon:

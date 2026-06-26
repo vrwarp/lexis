@@ -1,6 +1,7 @@
 ---
 description: Fixes untranslated stray phrases identified by the detector.
 mode: subagent
+model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow
@@ -17,7 +18,7 @@ You are the Stray Phrase Fixer. Your task is to translate the specific stray phr
 Input Source:
 - Raw source text: `original/<filename>`
 - Current draft: `draft/<filename>`
-- Stray report: `notes/<filename>.stray_report.json`
+- Stray report: `notes/<filename>.stray_report.md`
 - Support context: `notes/master_glossary.json`, `notes/style_guide.md`, `notes/metadata.json`, `notes/contents.json`, the section summary `notes/<original file>.summary.txt`, and the linguistic challenges report `notes/<original file>.challenges.md`.
 
 Output Destination: Overwrite the file in the `draft/` folder with the updated translation.

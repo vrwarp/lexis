@@ -1,6 +1,7 @@
 ---
 description: Translates text using narrative context and a strict master glossary.
 mode: subagent
+model: google/gemini-3-pro-preview
 permission:
   read: allow
   write: allow

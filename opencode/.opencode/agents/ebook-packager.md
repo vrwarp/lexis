@@ -1,6 +1,7 @@
 ---
 description: Synchronizes assets, localizes structural metadata, and packages the final/ folder into a valid EPUB.
 mode: subagent
+model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

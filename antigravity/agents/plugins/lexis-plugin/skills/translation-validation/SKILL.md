@@ -16,9 +16,10 @@ Procedures for evaluating draft translations, identifying content gaps, scanning
 
 ## 2. Stray Phrase Detection
 - **Script Mismatch Check**: Compare source and target languages in `metadata.json`. If they use different writing scripts, prioritize fast regex or grep filtering (e.g., matching English alphabet characters in a Hanzi document) to avoid context bloat.
-- **Reporting**:
-  - If clean, output `{"status": "CLEAN", "stray_phrases": []}`.
-  - If issues exist, output strict raw JSON listing each stray phrase, its location context, and suggested fix context.
+- **Reporting** (Markdown, written to `notes/<filename>.stray_report.md`):
+  - If clean, output exactly: `STATUS: CLEAN`
+  - If issues exist, output `STATUS: ISSUES_FOUND` followed by a numbered Markdown list. Each entry includes: `**Original Phrase**`, `**Draft Location Context**`, `**Suggested Fix Context**`.
+  - The orchestrator gates progression on the leading `STATUS:` line only — no JSON parsing required.
 
 ## 3. Native Critique Review
 - Perform an exhaustive, chronological line-by-line review of the draft.
