@@ -32,23 +32,26 @@ This document is the authoritative description of the redesign. Companion docs:
    - `native-critique` **exempts** their structural features (won't flag verse line breaks as "translationese," etc.).
    - `final-translator` carries a **hard constraint** that silently discards any critique suggestion that would collapse verse, merge table cells, drop footnote markers, or strip a ruby semantic gloss.
 
-All four changes are applied to **both harnesses** and kept in semantic parity (antigravity `agent.json` ↔ opencode `.md`; both skill copies).
+5. **Book-wide consistency audit — the new `consistency-auditor` agent (16th agent, Flash).** Runs once after all chapters are finalized and before packaging (orchestrator **Phase 4.6**). Using `grep`/`bash` for efficiency, it audits the finalized book for cross-chapter **terminology** drift (every `proper_noun`/`neologism` should use its glossary-canonical translation everywhere), **honorific / form-of-address** consistency, and **register/voice** drift — the failures per-chapter agents structurally cannot see. It emits `notes/consistency_report.md` with a trailing `STATUS:` sentinel (`CONSISTENT`/`ISSUES_FOUND`/`ERROR`); terminology deviations can be auto-corrected via a targeted `stray-phrase-fixer` pass, and packaging is gated on the result.
+
+All changes are applied to **both harnesses** and kept in semantic parity (antigravity `agent.json` ↔ opencode `.md`; both skill copies).
 
 ---
 
 ## Current model-tier map
 
+**Flash-as-workhorse is the active default** (the project's north-star): all 16 agents are pinned to Flash in opencode. Quality is carried by the scaffolding (scorer gate, special-content handling, robust sentinels, consistency audit), not by a larger model.
+
 | Tier | Model (opencode pin) | Agents |
 | :--- | :--- | :--- |
-| Pro | `google/gemini-3-pro-preview` | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
-| Flash | `google/gemini-3-flash-preview` | `ebook-disbinder`, `ebook-packager`, `omission-detector`, `stray-phrase-detector`, `stray-phrase-fixer`, `translation-scorer` |
-| Default (harness) | *(no pin)* | `toc-generator`, `style-analyzer`, `narrative-summarizer`, `local-lexicographer`, `glossary-manager` |
+| Flash (workhorse) | `google/gemini-3-flash-preview` | **all 16 agents** |
+| Pro (documented escalation, **not default**) | `google/gemini-3-pro-preview` | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` — re-pin only if evidence shows Flash underperforms |
 
-### The Flash-first decision (open knob)
+Antigravity has no per-agent model slot, so it runs on the harness default; the split is expressed only in opencode (documented divergence).
 
-The current baseline reproduces the repo's last deliberate human tier decision (`ba86672`), which keeps the four **literary-cognition** agents on **Pro**. The adversarial loops deliberately did **not** auto-demote them to Flash without evidence — that is the single highest-stakes change, and the scaffolding above (quality gate, special-content handling, robust sentinels, glossary scoping) exists precisely to make the demotion *safe and measurable*.
+### The Flash-first decision (resolved)
 
-To run **Flash-as-workhorse end-to-end** (the project's north-star), flip those four pins to `google/gemini-3-flash-preview` and rely on the `translation-scorer` gate to catch failures, escalating only below-threshold chapters back to Pro. The recommended way to make that switch is behind a small quality benchmark (see Future Work) rather than blindly.
+Earlier in the redesign the four **literary-cognition** agents were kept on Pro (reproducing `ba86672`), because demoting them is the single highest-stakes change and the adversarial loops wanted evidence first. That scaffolding now exists (quality gate, special-content handling, robust sentinels, consistency audit), so the pins were moved to **Flash everywhere** to deliver the stated goal — high-quality translation on a mid-tier model. The `translation-scorer` gate catches failures and surfaces them; the documented escalation path is to re-pin the four literary agents (or only below-threshold chapters) to Pro if a benchmark warrants. Validate with a small fixture before relying on Flash for a production book (see Future Work).
 
 ---
 
@@ -63,7 +66,6 @@ The loops rejected far more than they accepted (a healthy convergence signal). R
 
 ## Future work / open problems (see `docs/LOOP_LEDGER.md` for the full list)
 
-- **Cross-chapter consistency auditor** (name/tone/register drift across the book) — accepted in the final loop but not implemented before the run ended; the highest-value next addition.
 - **Deterministic chunking actuator** — a committed script the harness can call, which would unlock safe long-chapter segmentation and best-of-N.
 - **Flash-migration benchmark** — a small fixture + scorer harness to decide, with evidence, whether the four literary agents can move to Flash.
 - **Dynamic glossary feedback** (Stage B → glossary) and **per-chunk glossary scoping** (inject only terms present in the current segment).

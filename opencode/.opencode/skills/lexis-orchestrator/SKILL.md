@@ -1,11 +1,11 @@
 ---
 name: lexis-orchestrator
-description: Coordinates the lexis book translation pipeline, managing 15 subagents sequentially through Stage A (extraction and glossary building chapter-by-chapter) and Stage B (translation draft, quality scoring, validation loops, critique, finalization chapter-by-chapter), and packaging. Trigger this skill whenever you need to start, run, update, or check the status of the book translation pipeline.
+description: Coordinates the lexis book translation pipeline, managing 16 subagents sequentially through Stage A (extraction and glossary building chapter-by-chapter) and Stage B (translation draft, quality scoring, validation loops, critique, finalization chapter-by-chapter), a book-wide consistency audit, and packaging. Trigger this skill whenever you need to start, run, update, or check the status of the book translation pipeline.
 ---
 
 # Lexis Translation Orchestrator
 
-This skill coordinates the execution order, dependencies, and data flows of the 15 subagents in the `lexis` book translation pipeline.
+This skill coordinates the execution order, dependencies, and data flows of the 16 subagents in the `lexis` book translation pipeline.
 
 ## Execution Mode: Hybrid Sequential
 
@@ -34,6 +34,7 @@ To maintain narrative continuity and lexical integrity—and to prevent overwhel
 | `stray-phrase-fixer` | Production (Validation Stage)| `read`, `write`, `edit`, `glob` | Updates `draft/<name>` |
 | `native-critique` | Production (Refinement Stage)| `read`, `write`, `glob` | `critique/<name>.critique.md` |
 | `final-translator` | Production (Finalization) | `read`, `write`, `edit`, `glob` | `final/<name>` |
+| `consistency-auditor` | Finalization (Book-Wide, once) | `read`, `grep`, `bash`, `glob` | `notes/consistency_report.md` |
 | `ebook-packager` | Finalization Phase | `bash` | `translated_book.epub` |
 
 ---
@@ -103,9 +104,17 @@ Process each file **sequentially, one at a time**:
 
 *Once Chapter N has completed Step 4.5 without a blocking event, proceed to Chapter N+1.*
 
+### Phase 4.6: Cross-Chapter Consistency Audit (Book-Wide, runs once)
+After **ALL** chapters have completed Step 4.5 and exist in `final/`, and **before** packaging:
+1. Invoke `consistency-auditor` once to audit the whole finalized book and write `notes/consistency_report.md`.
+2. Read the **last** standalone `STATUS:` line from the report using the same tolerant rules as the detectors. Valid values: `STATUS: CONSISTENT`, `STATUS: ISSUES_FOUND`, `STATUS: ERROR`.
+3. On `STATUS: CONSISTENT`: log it and proceed to Phase 5.
+4. On `STATUS: ISSUES_FOUND`: surface the issue list (terminology / honorific / register deviations) to the user. For **terminology** deviations against a `proper_noun`/`neologism` canonical translation, you may invoke `stray-phrase-fixer` on the affected `final/<file>` with a targeted instruction to correct the specific term to its glossary-canonical form (then re-run the affected chapter's Step 4.5 score). For honorific/register issues, request human guidance. Do not silently package a book with unresolved terminology inconsistencies.
+5. On `STATUS: ERROR` or a missing/malformed sentinel: re-invoke `consistency-auditor` once; if still unparseable, surface it as a `consistency-audit-malformation` event and request human guidance rather than skipping the audit.
+
 ### Phase 5: Finalization & Packaging
-1. Present a complete project summary to the user (file completion status, localized metadata metrics).
-2. **Pre-packaging quality gate:** Before asking for packaging approval, read the final scorecard (`notes/<filename>.final.score.md`) for every chapter that completed Stage B. For each chapter, extract the `SCORE_VERDICT:` and Overall score. Present this quality summary table to the user. If any chapter has `SCORE_VERDICT: FAIL` in its final scorecard, surface that chapter's Critical Issues and **do not proceed to packaging** until the user explicitly acknowledges and accepts the risk, or requests a remediation pass on the failing chapter.
+1. Present a complete project summary to the user (file completion status, localized metadata metrics, and the consistency-audit result).
+2. **Pre-packaging quality gate:** Before asking for packaging approval, read the final scorecard (`notes/<filename>.final.score.md`) for every chapter that completed Stage B and the `notes/consistency_report.md`. For each chapter, extract the `SCORE_VERDICT:` and Overall score. Present this quality summary table (plus the consistency-audit status) to the user. If any chapter has `SCORE_VERDICT: FAIL` in its final scorecard, or the consistency audit is `STATUS: ISSUES_FOUND` with unresolved terminology deviations, surface the details and **do not proceed to packaging** until the user explicitly acknowledges and accepts the risk, or requests a remediation pass.
 3. **Explicit User Confirmation**: Ask the user for explicit permission to package. The permission request must include the quality summary table so the user is making an informed decision.
 4. Upon approval, invoke `ebook-packager` to synchronize assets, update localized metadata tags, and zip/package `final/` folder into `translated_book.epub`.
 
@@ -120,6 +129,7 @@ Process each file **sequentially, one at a time**:
 - **Scorer sentinel reading**: The `translation-scorer` ends its scorecard with a `SCORE_VERDICT:` line. Read the **last** standalone `SCORE_VERDICT:` line in the file as canonical; ignore any earlier occurrences. Match case-insensitively; tolerate trivial whitespace variants. Valid values are `PASS`, `MARGINAL`, `FAIL`, and `ERROR`. A missing or unparseable verdict is treated as `MARGINAL` (non-blocking) with a warning, not as a hard failure — the scorer is a quality signal, not a loop gate.
 - **Score extraction for delta computation**: To read Overall and Adequacy scores from a scorecard, look for the Markdown table row matching the dimension name (e.g., `| Adequacy |` or `| **Overall** |`). Extract the numeric value from the second column. If the table is malformed or the value is non-numeric, treat the score as unavailable and skip the delta computation; do not block on a missing delta. Log the unavailability as a `scorer-delta-unavailable` event.
 - **Critique-regression semantics**: A Step 4.5 Adequacy drop of ≥ 2 points vs the Step 4.0 Adequacy score is a meaningful signal that the `final-translator`'s critique-application pass may have introduced content loss. It is NOT automatically a blocking failure — a human must decide. The threshold of 2 points is intentionally conservative (catching large drops only) given that the scorer is a stochastic Flash estimator; do not gate-halt on a 1-point drop.
+- **Consistency-audit sentinel reading**: The `consistency-auditor` ends its report with a single authoritative `STATUS:` line (`CONSISTENT` / `ISSUES_FOUND` / `ERROR`). Read the **last** standalone `STATUS:` line as canonical (same tolerant matching as the detectors). A missing/malformed sentinel is treated as NOT consistent — re-invoke once, then request human guidance; never package on an unknown consistency status.
 
 ## Test Scenarios
 
@@ -128,8 +138,9 @@ Process each file **sequentially, one at a time**:
 2. Orchestrator triggers, invokes `ebook-disbinder` -> extracts files.
 3. Init runs -> creates TOC, Style Guide, Metadata.
 4. Stage A loop runs chapter-by-chapter, building master glossary.
-5. Stage B loop runs chapter-by-chapter, producing and validating translations.
-6. Packaging runs upon user approval -> `translated_book.epub` generated successfully.
+5. Stage B loop runs chapter-by-chapter, producing, scoring, and validating translations.
+6. Book-wide consistency audit runs once -> `STATUS: CONSISTENT`.
+7. Packaging runs upon user approval -> `translated_book.epub` generated successfully.
 
 ### Loop Timeout Path
 1. Primary draft omission check fails persistently.

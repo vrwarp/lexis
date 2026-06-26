@@ -10,7 +10,7 @@ This document outlines the trigger rules and changelogs for the `lexis` translat
 
 ## Subagents
 
-The 15 subagents live under `.opencode/agents/`. All are `mode: subagent` and are invoked by the orchestrator skill:
+The 16 subagents live under `.opencode/agents/`. All are `mode: subagent` and are invoked by the orchestrator skill:
 
 | Agent | Role / Phase |
 | :--- | :--- |
@@ -28,6 +28,7 @@ The 15 subagents live under `.opencode/agents/`. All are `mode: subagent` and ar
 | `stray-phrase-fixer` | Stage B validation — patch draft |
 | `native-critique` | Stage B refinement — `critique/<name>.critique.md` (exempts special content) |
 | `final-translator` | Stage B finalization — `final/<name>` (special-content hard constraint) |
+| `consistency-auditor` | Finalization (book-wide, once) — `notes/consistency_report.md` (terminology/honorific/register drift) |
 | `ebook-packager` | Finalization — `translated_book.epub` |
 
 ## Skills
@@ -42,15 +43,17 @@ Skills live under `.opencode/skills/`:
 
 ## Model Tier Strategy
 
-Per-agent model pinning is expressed via the `model:` frontmatter key (format `provider/model-id`, verified against opencode docs). The Flash-workhorse / Pro-quality split:
+Per-agent model pinning is expressed via the `model:` frontmatter key (format `provider/model-id`, verified against opencode docs).
+
+**Flash-as-workhorse (current default).** Per the project goal — high-quality literary translation on a mid-tier model — **all 16 agents are pinned to `google/gemini-3-flash-preview`**. Quality is carried by the scaffolding (the `translation-scorer` acceptance gate, special-content handling, robust Markdown sentinels, glossary consistency audit), not by a larger model.
 
 | Tier | Model | Agents |
 | :--- | :--- | :--- |
-| Pro | `google/gemini-3-pro-preview` | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
-| Flash | `google/gemini-3-flash-preview` | `ebook-disbinder`, `ebook-packager`, `omission-detector`, `stray-phrase-detector`, `stray-phrase-fixer`, `translation-scorer` |
-| Default | (no `model:` key — harness default) | `toc-generator`, `style-analyzer`, `narrative-summarizer`, `local-lexicographer`, `glossary-manager` |
+| Flash (workhorse) | `google/gemini-3-flash-preview` | **all 16 agents** |
 
-Notes: opencode has **no per-agent timeout field** — the legacy `timeout_mins:` was never consumed; request timeouts live at provider level (`provider.<name>.options.timeout`, ms) and are intentionally not set per-agent. The Antigravity harness cannot express this split (no model slot in `agent.json`/`settings.json`) and runs custom agents on the harness default — see `antigravity/AGENTS.md` (accepted divergence). Re-pinning is the evidence-gated baseline; any demotion of a tier must be justified by quality evidence.
+**Documented Pro-escalation (not the default).** The repo's prior baseline (`ba86672`) ran the four literary-cognition agents — `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` — on `google/gemini-3-pro-preview`. That remains the recommended escalation tier: if a quality benchmark (or the `translation-scorer` gate firing `FAIL` repeatedly) shows Flash underperforming on those agents, re-pin them to Pro, or escalate only the below-threshold chapters. Treat any such tier change as evidence-gated.
+
+Notes: opencode has **no per-agent timeout field** — the legacy `timeout_mins:` was never consumed; request timeouts live at provider level (`provider.<name>.options.timeout`, ms) and are intentionally not set per-agent. The Antigravity harness cannot express per-agent model selection (no model slot in `agent.json`/`settings.json`) and runs custom agents on the harness default — see `antigravity/AGENTS.md` (accepted divergence).
 
 ## Change Log:
 | Date | Change | Scope | Reason |
@@ -60,3 +63,5 @@ Notes: opencode has **no per-agent timeout field** — the legacy `timeout_mins:
 | 2026-06-26 | Re-pinned per-agent `model:` frontmatter (Pro/Flash/default per ba86672 map, `google/` provider prefix); dropped never-consumed `timeout_mins:` | opencode | Re-establish testable model-tier strategy; Antigravity asymmetry recorded as accepted divergence |
 | 2026-06-26 | Added `translation-scorer` (15th agent, Flash): markdown scorecard with `SCORE_VERDICT:` sentinel scoring Adequacy/Fluency/Style; wired into orchestrator as Step 4.0 (post-draft score) + Step 4.5 (post-finalization regression gate) + Phase 5 pre-packaging quality summary | Global | Add an external quality signal / acceptance gate so a mid-tier workhorse is verified, not assumed |
 | 2026-06-26 | Added special-content handling chain (footnotes/tables/verse/ruby/captions): `narrative-summarizer` inventories per-type strategies into `challenges.md`; `primary-translator` applies them; `native-critique` exempts their structure; `final-translator` hard-constrains against structurally-destructive critique | Global | Preserve non-prose fidelity that a flat-prose pipeline would silently corrupt |
+| 2026-06-26 | Set all agents to Flash (`google/gemini-3-flash-preview`) as the workhorse default; documented Pro as the evidence-gated escalation tier for the four literary agents | opencode | Deliver the stated goal: high-quality translation on a mid-tier model, with quality carried by scaffolding + the scorer gate |
+| 2026-06-26 | Added `consistency-auditor` (16th agent, Flash): book-wide terminology/honorific/register audit (`notes/consistency_report.md`, `STATUS:` sentinel) run once before packaging (orchestrator Phase 4.6 + Phase 5 gate) | Global | Catch cross-chapter drift the per-chapter agents structurally cannot see |

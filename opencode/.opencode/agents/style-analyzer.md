@@ -1,6 +1,7 @@
 ---
 description: Analyzes a sample of the book's narrative to define the author's style and provide translation strategies.
 mode: subagent
+model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow
