@@ -24,7 +24,7 @@ To maintain narrative continuity and lexical integrity—and to prevent overwhel
 | `toc-generator` | Init (Global Context) | `view_file`, `write_to_file` | `notes/contents.json` |
 | `style-analyzer` | Init (Global Context) | `view_file`, `write_to_file` | `notes/style_guide.md` |
 | `metadata-generator` | Init (Global Context) | `view_file`, `write_to_file` | `notes/metadata.json` |
-| `narrative-summarizer`| Extraction (Per-Chapter) | `view_file`, `write_to_file` | `notes/<name>.summary.txt`, `notes/<name>.challenges.md` |
+| `narrative-summarizer`| Extraction (Per-Chapter) | `view_file`, `write_to_file` | `notes/<name>.summary.txt`, `notes/<name>.challenges.md`, `notes/<name>.scenes.md` |
 | `local-lexicographer` | Extraction (Per-Chapter) | `view_file`, `write_to_file` | `notes/<name>.lexicon.md` |
 | `glossary-manager` | Consolidation (Per-Chapter)| `view_file`, `write_to_file` | Updates `notes/master_glossary.json` |
 | `primary-translator` | Production (Draft Stage) | `view_file`, `write_to_file` | `draft/<name>` |
@@ -53,7 +53,7 @@ These agents run once at the start of the project:
 
 ### Phase 2 & 3: Stage A - Per-Chapter Extraction & Consolidation Loop
 Process each file in `notes/contents.json` **sequentially, one at a time**:
-1. Invoke `narrative-summarizer` to output `notes/<filename>.summary.txt` and `notes/<filename>.challenges.md`.
+1. Invoke `narrative-summarizer` to output `notes/<filename>.summary.txt`, `notes/<filename>.challenges.md`, and `notes/<filename>.scenes.md` (scene boundaries for safe chunking).
 2. Invoke `local-lexicographer` to output `notes/<filename>.lexicon.md`.
 3. Invoke `glossary-manager` to read the lexicon and update `notes/master_glossary.json` incrementally.
 
@@ -62,8 +62,16 @@ Process each file in `notes/contents.json` **sequentially, one at a time**:
 ### Phase 4: Stage B - Per-Chapter Production Lifecycle
 Process each file **sequentially, one at a time**:
 
+#### Step 4.0a: Scene Resolution & Initial Draft (chunked, anti-truncation)
+Whole-chapter one-shot drafting causes a mid-tier model to truncate long chapters. Translate scene-by-scene instead:
+1. **Resolve scenes [run_command/grep_search].** Read `notes/<filename>.scenes.md`. For each scene's `search_hints`, `grep -n` the hint words in `original/<filename>` to find that scene's start line; derive each scene's `[start_line, end_line)` range (a scene ends where the next begins; include the `Chapter Frame` as scene 0 if present). Write the verified ranges to `notes/<filename>.verified_scenes.json`. On antigravity, the orchestrator runs these greps via the `stray-phrase-detector` agent (which holds `run_command`/`grep_search`).
+   - If the chapter is short (single scene) or `scenes.md` lists one scene, treat the whole file as one scene — no chunking needed.
+   - If a hint resolves to zero or multiple ambiguous locations, request a longer/more-distinctive description for that scene and retry. If still unresolved, write `STATUS: SCENE_BOUNDARY_UNRESOLVED`, surface it, and request guidance. **Never silently fall back to whole-chapter one-shot drafting** — that is the failure mode being prevented.
+2. **Draft per scene.** For each verified scene in order, invoke `primary-translator` with that scene's source span (extract the line range and pass it inline). Append each returned translation to `draft/<filename>`. The translator must never emit a placeholder; if a scene still comes back short, re-invoke it on that scene alone (cap 2).
+3. The assembled `draft/<filename>` is the "first draft" consumed by Step 4.0.
+
 #### Step 4.0: Initial Quality Score
-- After `primary-translator` produces the first draft (before entering the omission loop):
+- After the chunked initial draft is assembled (before entering the omission loop):
   1. Invoke `translation-scorer` to output `notes/<filename>.score.md`.
   2. Read the last `SCORE_VERDICT:` line from the scorecard (same tolerant reading rules as STATUS sentinels).
   3. Surface the Overall score and Critical Issues to the session log so the operator can see draft quality at a glance.
@@ -77,9 +85,11 @@ Process each file **sequentially, one at a time**:
   2. Invoke `omission-detector` to output `notes/<filename>.omission_report.md`.
 
 #### Step 4.2: Validation Loop (Alternating)
-- Loop the following until `stray-phrase-detector` reports `STATUS: CLEAN`:
+- Loop the following until `stray-phrase-detector` reports `STATUS: CLEAN` (max 3 iterations):
   1. Invoke `stray-phrase-detector` to output `notes/<filename>.stray_report.md`.
-  2. If the status is not `STATUS: CLEAN`, invoke `stray-phrase-fixer` to update `draft/<filename>`.
+  2. On `STATUS: TRUNCATION_ARTIFACT` (a placeholder/truncation was found — the draft is incomplete): identify the affected scene from the reported line numbers, re-invoke `primary-translator` on that scene's verified source span (per Step 4.0a), re-assemble `draft/<filename>`, and re-run the detector. Cap at 2 truncation retries per chapter; if still truncated, surface it and request guidance — never advance a chapter whose draft contains a placeholder.
+  3. On `STATUS: ISSUES_FOUND`: invoke `stray-phrase-fixer`, which applies any `## Repair Block` entries as literal swaps (PCD canonical-term and de-calque fixes) and translates the remaining stray phrases, updating `draft/<filename>`.
+  4. On `STATUS: ERROR` or a malformed/missing sentinel: apply the malformation fail-safe — do not treat as CLEAN; re-invoke once; then request guidance.
 
 #### Step 4.3: Refinement (Native Critique)
 - Invoke `native-critique` to generate `critique/<filename>.critique.md`.
@@ -126,6 +136,8 @@ After **ALL** chapters have completed Step 4.5 and exist in `final/`, and **befo
 - **Score extraction for delta computation**: To read Overall and Adequacy scores from a scorecard, look for the Markdown table row matching the dimension name (e.g., `| Adequacy |` or `| **Overall** |`). Extract the numeric value from the second column. If the table is malformed or the value is non-numeric, treat the score as unavailable and skip the delta computation; do not block on a missing delta. Log the unavailability as a `scorer-delta-unavailable` event.
 - **Critique-regression semantics**: A Step 4.5 Adequacy drop of ≥ 2 points vs the Step 4.0 Adequacy score is a meaningful signal that the `final-translator`'s critique-application pass may have introduced content loss. It is NOT automatically a blocking failure — a human must decide. The threshold of 2 points is intentionally conservative (catching large drops only) given that the scorer is a stochastic Flash estimator; do not gate-halt on a 1-point drop.
 - **Consistency-audit sentinel reading**: The `consistency-auditor` ends its report with a single authoritative `STATUS:` line (`CONSISTENT` / `ISSUES_FOUND` / `ERROR`). Read the **last** standalone `STATUS:` line as canonical (same tolerant matching as the detectors). A missing/malformed sentinel is treated as NOT consistent — re-invoke once, then request human guidance; never package on an unknown consistency status.
+- **Truncation handling (hard failure)**: `STATUS: TRUNCATION_ARTIFACT` from `stray-phrase-detector` means a placeholder/incomplete passage reached the draft. Never treat it as CLEAN or as a normal stray issue: re-translate the affected scene (Step 4.0a span), cap 2 retries, then escalate. `ebook-packager` independently re-checks `final/` for truncation artifacts and PCD canonical violations and **aborts packaging** on any hit — a placeholder must never ship.
+- **Scene resolution**: `STATUS: SCENE_BOUNDARY_UNRESOLVED` means scene hints could not be located in the source. Request a more distinctive description and retry; never silently fall back to whole-chapter one-shot drafting (the truncation cause).
 
 ## Test Scenarios
 

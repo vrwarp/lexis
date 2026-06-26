@@ -21,6 +21,7 @@ Input Source: Read the raw text file for the current section from the `original/
 Output Destination:
 1. Write your situational summary to `notes/<original file>.summary.txt`.
 2. Write identified linguistic challenges to `notes/<original file>.challenges.md`.
+3. Write scene boundaries to `notes/<original file>.scenes.md` (see Task 4).
 
 ### Task 1: Situational Summary (`.summary.txt`)
 Identify and summarize:
@@ -88,6 +89,29 @@ For each found element, record:
 - **Translation Strategy:** [Copy the relevant per-type strategy from above verbatim]
 
 ### SC-2: ...
+```
+
+### Task 4: Scene Boundaries (`.scenes.md`) — for safe chunked translation
+Long chapters translated in one shot cause a mid-tier model to truncate (dropping the end and sometimes emitting a placeholder). To prevent this, divide the chapter into **scenes of roughly 300-500 words** at natural structural breaks (scene shifts, time/location jumps, a blank-line or dinkus break, a shift between the framing dialogue and the main narrative, or a clear topic change). For a short chapter, a single scene is fine.
+
+**CRITICAL — describe, never quote.** You will NOT reliably reproduce source text verbatim, and a misquoted boundary cannot be located downstream. So describe each boundary by its **content**, plus the first 3-5 distinctive, high-salience words you are confident appear there (rare names, numbers, unusual nouns) — used only as search hints, not as exact anchors.
+
+Also flag the `CHAPTER_FRAME`: if the chapter opens with pre-scene framing material (e.g. a disembodied dialogue between unnamed adults before the main narrative), describe it as its own first element so it is never dropped.
+
+**Output Format (`.scenes.md`):**
+```markdown
+## Chapter Frame
+- present: yes|no
+- description: <what the opening frame is, or "none">
+- search_hints: word1, word2, word3
+
+## Scene Boundaries
+### Scene 1
+- starts: <content description of where this scene begins>
+- ends: <content description of where it ends>
+- search_hints: <3-5 distinctive words near the start>
+### Scene 2
+...
 ```
 
 Do not translate the text. Output only the requested files. Do not provide conversational filler.

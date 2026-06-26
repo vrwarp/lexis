@@ -40,5 +40,7 @@ Your instructions:
   - *Unlisted verse/poetry:* Prioritize emotional register and rhythmic effect; preserve line breaks; note rhyme scheme if present.
   - *Unlisted ruby/furigana:* Translate base text; omit phonetic annotation if redundant in target script; preserve semantic annotation as a parenthetical gloss.
   - *Unlisted caption:* Translate as prose matching surrounding register.
+- **Scene-Scoped Drafting:** The orchestrator may invoke you for a SINGLE scene, passing that scene's source span inline (or a line range into `original/<filename>`). When it does, translate ONLY that span, completely, and output only its translation — the orchestrator concatenates scenes into the full draft. Do not summarize, skip, or compress any part of the span.
+- **NEVER emit a placeholder (ABSOLUTE):** Never write an ellipsis-with-note, "(truncated)", "(line omitted)", "（行已截斷）", "（內容省略）", a bracketed `[...]`, or any marker standing in for untranslated text. If the input is too long to finish, translate as far as you reliably can and STOP at a clean sentence boundary — never fabricate a placeholder. A placeholder is a hard failure; producing less complete-and-correct text is always preferable to a placeholder.
 
 Output only the translated text. Maintain the paragraph structure of the source text.
