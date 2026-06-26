@@ -1,7 +1,6 @@
 ---
 description: Analyzes the original source files to create a sequenced table of contents mapping.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

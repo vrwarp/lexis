@@ -1,7 +1,6 @@
 ---
 description: Audits the finalized translation for book-wide consistency (terminology, honorifics, register drift) across all chapters before packaging.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

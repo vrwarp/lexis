@@ -38,20 +38,15 @@ All changes are applied to **both harnesses** and kept in semantic parity (antig
 
 ---
 
-## Current model-tier map
+## Model selection
 
-**Flash-as-workhorse is the active default** (the project's north-star): all 16 agents are pinned to Flash in opencode. Quality is carried by the scaffolding (scorer gate, special-content handling, robust sentinels, consistency audit), not by a larger model.
+**No per-agent model pinning.** No agent specifies a `model:` key; every agent inherits whatever model the parent/harness/session is configured to use. Model choice is made once, at the harness level, and both harnesses behave symmetrically (Antigravity never had a per-agent model slot). The pipeline targets a mid-tier (Flash-class) default and relies on the **scaffolding** (exemplar prior, Positive-Constraint Document, zero-generation repair, scene chunking + truncation guard, the `translation-scorer` gate, special-content handling, consistency auditor) to reach quality — not on per-agent tiering.
 
-| Tier | Model (opencode pin) | Agents |
-| :--- | :--- | :--- |
-| Flash (workhorse) | `google/gemini-3-flash-preview` | **all 16 agents** |
-| Pro (documented escalation, **not default**) | `google/gemini-3-pro-preview` | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` — re-pin only if evidence shows Flash underperforms |
+To run the literary-cognition agents (`primary-translator`, `final-translator`, `native-critique`, `metadata-generator`) on a stronger model, point the harness/session at that model, or re-introduce a `model:` key on those four agents. The `translation-scorer` gate surfaces chapters where the chosen model underperforms.
 
-Antigravity has no per-agent model slot, so it runs on the harness default; the split is expressed only in opencode (documented divergence).
+### History (resolved)
 
-### The Flash-first decision (resolved)
-
-Earlier in the redesign the four **literary-cognition** agents were kept on Pro (reproducing `ba86672`), because demoting them is the single highest-stakes change and the adversarial loops wanted evidence first. That scaffolding now exists (quality gate, special-content handling, robust sentinels, consistency audit), so the pins were moved to **Flash everywhere** to deliver the stated goal — high-quality translation on a mid-tier model. The `translation-scorer` gate catches failures and surfaces them; the documented escalation path is to re-pin the four literary agents (or only below-threshold chapters) to Pro if a benchmark warrants. Validate with a small fixture before relying on Flash for a production book (see Future Work).
+The redesign briefly pinned all 16 agents to Flash, then to Pro-on-literary, before settling on **no per-agent pins at all** — the model is a harness/session decision, and the design's job is to make a mid-tier default viable through scaffolding. Validate with a small fixture before relying on a mid-tier model for a production book (see Future Work).
 
 ---
 

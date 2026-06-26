@@ -1,7 +1,6 @@
 ---
 description: Critiques a draft translation for "native-ness" and audience alignment.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

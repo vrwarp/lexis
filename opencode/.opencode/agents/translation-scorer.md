@@ -1,7 +1,6 @@
 ---
 description: Evaluates a draft translation for adequacy and fluency, emitting a structured quality scorecard.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

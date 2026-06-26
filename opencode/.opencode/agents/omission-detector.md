@@ -1,7 +1,6 @@
 ---
 description: Compares the original and draft text to identify accidental omissions or missing segments.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

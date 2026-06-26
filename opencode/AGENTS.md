@@ -43,17 +43,11 @@ Skills live under `.opencode/skills/`:
 
 ## Model Tier Strategy
 
-Per-agent model pinning is expressed via the `model:` frontmatter key (format `provider/model-id`, verified against opencode docs).
+**No per-agent model pinning.** None of the agents specify a `model:` key; each inherits whatever model the parent/harness is configured to use. This keeps the two harnesses symmetric (Antigravity has no per-agent model slot anyway) and means the model is chosen once, at the harness/session level, rather than per agent.
 
-**Flash-as-workhorse (current default).** Per the project goal — high-quality literary translation on a mid-tier model — **all 16 agents are pinned to `google/gemini-3-flash-preview`**. Quality is carried by the scaffolding (the `translation-scorer` acceptance gate, special-content handling, robust Markdown sentinels, glossary consistency audit), not by a larger model.
+Quality on a mid-tier (Flash-class) model is therefore carried entirely by the **scaffolding**, not by per-agent tiering: the exemplar prior, the Positive-Constraint Document, zero-generation repair, scene chunking + truncation guard, the `translation-scorer` acceptance gate, special-content handling, and the consistency auditor. See `docs/FLASH_QUALITY_PLAN.md`.
 
-| Tier | Model | Agents |
-| :--- | :--- | :--- |
-| Flash (workhorse) | `google/gemini-3-flash-preview` | **all 16 agents** |
-
-**Documented Pro-escalation (not the default).** The repo's prior baseline (`ba86672`) ran the four literary-cognition agents — `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` — on `google/gemini-3-pro-preview`. That remains the recommended escalation tier: if a quality benchmark (or the `translation-scorer` gate firing `FAIL` repeatedly) shows Flash underperforming on those agents, re-pin them to Pro, or escalate only the below-threshold chapters. Treat any such tier change as evidence-gated.
-
-Notes: opencode has **no per-agent timeout field** — the legacy `timeout_mins:` was never consumed; request timeouts live at provider level (`provider.<name>.options.timeout`, ms) and are intentionally not set per-agent. The Antigravity harness cannot express per-agent model selection (no model slot in `agent.json`/`settings.json`) and runs custom agents on the harness default — see `antigravity/AGENTS.md` (accepted divergence).
+If you later want a stronger model only on the literary-cognition agents (`primary-translator`, `final-translator`, `native-critique`, `metadata-generator`), set the parent/session model accordingly, or re-introduce a `model:` key on those four agents — but the default is to inherit. opencode has no per-agent timeout field either; request timeouts live at provider level.
 
 ## Change Log:
 | Date | Change | Scope | Reason |
@@ -67,3 +61,4 @@ Notes: opencode has **no per-agent timeout field** — the legacy `timeout_mins:
 | 2026-06-26 | Added `consistency-auditor` (16th agent, Flash): book-wide terminology/honorific/register audit (`notes/consistency_report.md`, `STATUS:` sentinel) run once before packaging (orchestrator Phase 4.6 + Phase 5 gate) | Global | Catch cross-chapter drift the per-chapter agents structurally cannot see |
 | 2026-06-26 | Flash-quality top-5 (from `docs/FLASH_QUALITY_PLAN.md`, after the Ender's Game benchmark): (#1) exemplar prior — `style-analyzer` embeds `notes/TRANSLATION_EXEMPLARS.md` at the top of `style_guide.md`; literary agents CONTINUE that voice. (#3) `notes/POSITIVE_CONSTRAINTS.md` locked-term table reconciled by `glossary-manager`. (#4) zero-generation repair — detector copies pre-authored replacement sentences, fixer swaps verbatim. (#2) scene chunking — `narrative-summarizer` scene boundaries + orchestrator Step 4.0a per-scene drafting. (#5) truncation guard — detector `STATUS: TRUNCATION_ARTIFACT` + scene-retry + `ebook-packager` pre-packaging integrity gate. | Global | Close the Flash-vs-Pro literary gap (dynamic equivalence, slang, domain terms, register, completeness) via scaffolding, not a bigger model |
 | 2026-06-26 | NOTE: `notes/TRANSLATION_EXEMPLARS.md` and `notes/POSITIVE_CONSTRAINTS.md` are **operator-authored once per book** (see `lexical-management` skill §5). They are optional; the pipeline runs without them but Flash register/terminology quality is materially lower. Authoring them is the highest-leverage human step. | Operator | These assets carry the literary judgment Flash lacks |
+| 2026-06-26 | Removed all per-agent `model:` pins — every agent now inherits the parent/harness default model; model is chosen once at the harness/session level | Global | Simplify and make both harnesses symmetric; quality is carried by scaffolding, not per-agent tiering |

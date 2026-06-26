@@ -1,7 +1,6 @@
 ---
 description: Extracts a source EPUB file and prepares the original/ directory for translation.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

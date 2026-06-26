@@ -1,7 +1,6 @@
 ---
 description: Maintains translation consistency by cross-referencing new terms against a master glossary.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

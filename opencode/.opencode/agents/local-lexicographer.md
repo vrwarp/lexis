@@ -1,7 +1,6 @@
 ---
 description: Extracts proper nouns, pronouns, and unique vocabulary requiring strict consistency tracking.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

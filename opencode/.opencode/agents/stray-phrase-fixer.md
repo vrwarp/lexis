@@ -1,7 +1,6 @@
 ---
 description: Fixes untranslated stray phrases identified by the detector.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

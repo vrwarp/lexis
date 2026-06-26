@@ -1,7 +1,6 @@
 ---
 description: Consolidates the original, draft, and critique into a final polished translation.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

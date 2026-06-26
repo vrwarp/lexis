@@ -1,7 +1,6 @@
 ---
 description: Defines the project's linguistic and demographic parameters, including source/target languages and audience.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

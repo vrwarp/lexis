@@ -16,7 +16,7 @@ The **top-5 mechanism is implemented** across both harnesses (pipeline machinery
 - ✅ **#4 Zero-generation repair** — `stray-phrase-detector` emits repair blocks copying pre-authored replacement sentences; `stray-phrase-fixer` swaps verbatim.
 - ✅ **#5 Truncation routing** — detector `STATUS: TRUNCATION_ARTIFACT` (CJK-aware) + orchestrator scene-retry + `ebook-packager` pre-packaging integrity gate.
 
-**Decisions taken:** stay Flash-everywhere (Pro re-pin declined); items #6–#10 (best-of-N, positive-presence gates, native-critique-as-diff beyond the exemplar reference, Pro escalation) are **not** implemented and remain documented future work.
+**Decisions taken:** no per-agent model pins — every agent inherits the parent/harness default model (model is chosen once at the harness/session level; both harnesses symmetric). Items #6–#10 (best-of-N, positive-presence gates, native-critique-as-diff beyond the exemplar reference, Pro escalation) are **not** implemented and remain documented future work. (The plan text below predates this decision and still discusses per-agent Pro re-pinning as "free upside" on opencode; treat that as historical — the current repo pins no models, and a stronger model is enabled by setting the harness/session model instead.)
 
 **Operator action required to realize the gains:** author `notes/TRANSLATION_EXEMPLARS.md` (2-3 gold passages) and `notes/POSITIVE_CONSTRAINTS.md` (locked term table) once per book — see the `lexical-management` skill §5. Without them the mechanism runs but degrades gracefully to the prior behavior.
 

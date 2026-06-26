@@ -1,7 +1,6 @@
 ---
 description: Analyzes text to extract structural and situational context for translation.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow

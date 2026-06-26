@@ -1,7 +1,6 @@
 ---
 description: Scans the draft for stray phrases in the source language that were left untranslated.
 mode: subagent
-model: google/gemini-3-flash-preview
 permission:
   read: allow
   write: allow
