@@ -1,11 +1,11 @@
 ---
 name: lexis-orchestrator
-description: Coordinates the lexis book translation pipeline, managing 14 subagents sequentially through Stage A (extraction and glossary building chapter-by-chapter) and Stage B (translation draft, validation loops, critique, finalization chapter-by-chapter), and packaging. Trigger this skill whenever you need to start, run, update, or check the status of the book translation pipeline.
+description: Coordinates the lexis book translation pipeline, managing 15 subagents sequentially through Stage A (extraction and glossary building chapter-by-chapter) and Stage B (translation draft, quality scoring, validation loops, critique, finalization chapter-by-chapter), and packaging. Trigger this skill whenever you need to start, run, update, or check the status of the book translation pipeline.
 ---
 
 # Lexis Translation Orchestrator
 
-This skill coordinates the execution order, dependencies, and data flows of the 14 subagents in the `lexis` book translation pipeline.
+This skill coordinates the execution order, dependencies, and data flows of the 15 subagents in the `lexis` book translation pipeline.
 
 ## Execution Mode: Hybrid Sequential
 
@@ -28,6 +28,7 @@ To maintain narrative continuity and lexical integrity—and to prevent overwhel
 | `local-lexicographer` | Extraction (Per-Chapter) | `read`, `write`, `glob` | `notes/<name>.lexicon.md` |
 | `glossary-manager` | Consolidation (Per-Chapter)| `read`, `write`, `glob` | Updates `notes/master_glossary.json` |
 | `primary-translator` | Production (Draft Stage) | `read`, `write`, `edit`, `glob` | `draft/<name>` |
+| `translation-scorer` | Production (Draft + Finalization Stages) | `read`, `write`, `glob` | `notes/<name>.score.md` (draft); `notes/<name>.final.score.md` (post-finalization) |
 | `omission-detector` | Production (Draft Stage) | `read`, `write`, `glob` | `notes/<name>.omission_report.md` |
 | `stray-phrase-detector`| Production (Validation Stage)| `grep`, `bash`, `read` | `notes/<name>.stray_report.md` |
 | `stray-phrase-fixer` | Production (Validation Stage)| `read`, `write`, `edit`, `glob` | Updates `draft/<name>` |
@@ -64,6 +65,15 @@ Process each file in `notes/contents.json` **sequentially, one at a time**:
 ### Phase 4: Stage B - Per-Chapter Production Lifecycle
 Process each file **sequentially, one at a time**:
 
+#### Step 4.0: Initial Quality Score
+- After `primary-translator` produces the first draft (before entering the omission loop):
+  1. Invoke `translation-scorer` to output `notes/<filename>.score.md`.
+  2. Read the last `SCORE_VERDICT:` line from the scorecard (same tolerant reading rules as STATUS sentinels).
+  3. Surface the Overall score and Critical Issues to the session log so the operator can see draft quality at a glance.
+  4. On `SCORE_VERDICT: FAIL`: log the failure, surface the Critical Issues to the user, and request human guidance before proceeding to the omission loop. Do not silently continue past a FAIL verdict.
+  5. On `SCORE_VERDICT: MARGINAL` or `SCORE_VERDICT: PASS`: proceed to the omission loop. The scorecard remains available on disk for downstream agents.
+  6. If the scorecard has no recognizable `SCORE_VERDICT:` line or ends with `SCORE_VERDICT: ERROR`, treat it as `MARGINAL` (proceed with a warning), re-invoke `translation-scorer` once to confirm. Do not block on a malformed scorer output.
+
 #### Step 4.1: Draft Loop (Alternating)
 - Loop the following until `omission-detector` reports `STATUS: COMPLETE`:
   1. Invoke `primary-translator` to generate or update `draft/<filename>` (utilizing `master_glossary.json`, summaries, and any previous omission reports).
@@ -80,12 +90,24 @@ Process each file **sequentially, one at a time**:
 #### Step 4.4: Finalization
 - Invoke `final-translator` to consolidate original text, the refined draft, and the native critique into `final/<filename>`.
 
-*Once Chapter N has completed Step 4.4, proceed to Chapter N+1.*
+#### Step 4.5: Post-Finalization Quality Score (Regression Gate)
+- After `final-translator` writes `final/<filename>` and **before** advancing to the next chapter:
+  1. Invoke `translation-scorer` with the instruction to evaluate `final/<filename>` and write its scorecard to `notes/<filename>.final.score.md`.
+  2. Read the last `SCORE_VERDICT:` line from `notes/<filename>.final.score.md` using the same tolerant reading rules as Step 4.0.
+  3. Read the Overall score from both `notes/<filename>.score.md` (draft) and `notes/<filename>.final.score.md` (final). Log the delta to the session (positive delta = improvement, negative delta = regression).
+  4. Read the Adequacy score from both scorecards and compute the Adequacy delta.
+  5. **Regression check:** If the final Adequacy score is **2 or more points lower** than the draft Adequacy score, this is a significant regression — the critique application may have introduced content loss. Log the regression as a `critique-regression` event, surface both scorecards' Critical Issues to the user, and request human guidance before proceeding to the next chapter. Do not silently advance past an Adequacy regression of this magnitude.
+  6. **Final FAIL check:** If `SCORE_VERDICT: FAIL` on the final scorecard (regardless of drift direction), surface the Critical Issues and request human guidance before proceeding.
+  7. On `SCORE_VERDICT: PASS` or `MARGINAL` with no large Adequacy regression: log the verdict and delta, then proceed to the next chapter.
+  8. If the scorecard has no recognizable `SCORE_VERDICT:` line or ends with `SCORE_VERDICT: ERROR`, treat as `MARGINAL` with a warning and re-invoke `translation-scorer` once (same malformation rules as Step 4.0).
+
+*Once Chapter N has completed Step 4.5 without a blocking event, proceed to Chapter N+1.*
 
 ### Phase 5: Finalization & Packaging
 1. Present a complete project summary to the user (file completion status, localized metadata metrics).
-2. **Explicit User Confirmation**: Ask the user for explicit permission to package.
-3. Upon approval, invoke `ebook-packager` to synchronize assets, update localized metadata tags, and zip/package `final/` folder into `translated_book.epub`.
+2. **Pre-packaging quality gate:** Before asking for packaging approval, read the final scorecard (`notes/<filename>.final.score.md`) for every chapter that completed Stage B. For each chapter, extract the `SCORE_VERDICT:` and Overall score. Present this quality summary table to the user. If any chapter has `SCORE_VERDICT: FAIL` in its final scorecard, surface that chapter's Critical Issues and **do not proceed to packaging** until the user explicitly acknowledges and accepts the risk, or requests a remediation pass on the failing chapter.
+3. **Explicit User Confirmation**: Ask the user for explicit permission to package. The permission request must include the quality summary table so the user is making an informed decision.
+4. Upon approval, invoke `ebook-packager` to synchronize assets, update localized metadata tags, and zip/package `final/` folder into `translated_book.epub`.
 
 ---
 
@@ -95,6 +117,9 @@ Process each file **sequentially, one at a time**:
 - **Loop threshold**: Limit both the Omission Loop and the Validation Loop to a maximum of 3 iterations per chapter. If loops exceed 3, pause and request human intervention.
 - **Status sentinel reading**: The Flash detectors (`omission-detector`, `stray-phrase-detector`) end their report with a single authoritative `STATUS:` line. Read the **last** standalone `STATUS:` line in the report as canonical; ignore any earlier occurrences (they are reasoning artifacts). Match it case-insensitively and tolerate trivial variants (extra whitespace, missing space after the colon). A loop-exit pass requires an explicit positive sentinel: `STATUS: COMPLETE` for the Omission Loop, `STATUS: CLEAN` for the Validation Loop.
 - **Malformation fallback (fail-safe)**: If a detector's report has NO recognizable `STATUS:` line, or ends with `STATUS: ERROR`, or the sentinel is otherwise unparseable, treat the gate as **NOT passed** — never interpret a missing or malformed sentinel as a pass. Re-invoke that detector once (counts against the loop threshold). If the sentinel is still malformed on the retry, do not silently exit the gate: surface it as a `detector-malformation` event, log it, and request human guidance rather than packaging a chapter whose validation status is unknown.
+- **Scorer sentinel reading**: The `translation-scorer` ends its scorecard with a `SCORE_VERDICT:` line. Read the **last** standalone `SCORE_VERDICT:` line in the file as canonical; ignore any earlier occurrences. Match case-insensitively; tolerate trivial whitespace variants. Valid values are `PASS`, `MARGINAL`, `FAIL`, and `ERROR`. A missing or unparseable verdict is treated as `MARGINAL` (non-blocking) with a warning, not as a hard failure — the scorer is a quality signal, not a loop gate.
+- **Score extraction for delta computation**: To read Overall and Adequacy scores from a scorecard, look for the Markdown table row matching the dimension name (e.g., `| Adequacy |` or `| **Overall** |`). Extract the numeric value from the second column. If the table is malformed or the value is non-numeric, treat the score as unavailable and skip the delta computation; do not block on a missing delta. Log the unavailability as a `scorer-delta-unavailable` event.
+- **Critique-regression semantics**: A Step 4.5 Adequacy drop of ≥ 2 points vs the Step 4.0 Adequacy score is a meaningful signal that the `final-translator`'s critique-application pass may have introduced content loss. It is NOT automatically a blocking failure — a human must decide. The threshold of 2 points is intentionally conservative (catching large drops only) given that the scorer is a stochastic Flash estimator; do not gate-halt on a 1-point drop.
 
 ## Test Scenarios
 

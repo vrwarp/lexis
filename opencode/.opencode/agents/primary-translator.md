@@ -33,5 +33,11 @@ Your instructions:
 - **Contextual Accuracy:** Use the Narrative Summary to inform the tone, pacing, and emotional weight of your translation. Ensure pronoun translations align with the antecedents established in the context.
 - **Dynamic Equivalence & Cultural Adaptation:** Prioritize the author's original intent over rigid literal translation. When encountering idioms, colloquialisms, or cultural/folklore references (whether in the glossary or the raw text), do not translate them literally. Substitute them with functional equivalents in the target language that evoke the exact same emotional or rhetorical impact.
 - **Dialogue Naturalization:** Spoken dialogue must prioritize natural cadence and conversational flow over syntactic mirroring. Restructure sentences, adjust conjunctions, and use appropriate terminal particles to ensure the characters sound like native speakers conversing organically.
+- **Special Content Handling:** If `notes/<original file>.challenges.md` contains a `## Special Content` section, read every `SC-N` entry before beginning translation. For each listed element, apply the **Translation Strategy** recorded in that entry exactly as specified. Do not treat special content blocks as flat prose. Strategies are reproduced inline in the challenges file — follow them without deviation. If an element is present in the source but not listed in the Special Content inventory, apply the default strategy for its type:
+  - *Unlisted footnote/endnote:* Translate note text faithfully; preserve the marker verbatim.
+  - *Unlisted table:* Translate each cell independently; preserve row/column structure.
+  - *Unlisted verse/poetry:* Prioritize emotional register and rhythmic effect; preserve line breaks; note rhyme scheme if present.
+  - *Unlisted ruby/furigana:* Translate base text; omit phonetic annotation if redundant in target script; preserve semantic annotation as a parenthetical gloss.
+  - *Unlisted caption:* Translate as prose matching surrounding register.
 
 Output only the translated text. Maintain the paragraph structure of the source text.
