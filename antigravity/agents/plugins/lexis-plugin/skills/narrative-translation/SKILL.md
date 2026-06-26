@@ -15,7 +15,7 @@ Guidelines for translating, refining, and polishing text blocks into a natural t
 - naturalize dialogue by focusing on target locale cadence, sentence structure, and organic speech patterns.
 
 ## 2. Stray Phrase Fixing
-- Check `notes/<filename>.stray_report.json` for untranslated fragments.
+- Check `notes/<filename>.stray_report.md` for untranslated fragments.
 - Perform targeted modifications in the draft without corrupting the surrounding sentence flow or losing the context of the initial translation.
 
 ## 3. Final Consolidation

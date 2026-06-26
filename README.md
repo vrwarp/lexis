@@ -1,8 +1,8 @@
 # lexis
 
-A multi-stage sequential book-translation orchestration pipeline. Lexis disbinds an EPUB, builds a glossary chapter-by-chapter, drafts and validates translations, applies native critique, and packages a finished `translated_book.epub`.
+A multi-stage sequential book-translation orchestration pipeline designed to produce **high-quality literary translation using a mid-tier (Gemini Flash–class) model as the workhorse**. Lexis disbinds an EPUB, builds a glossary chapter-by-chapter, drafts and validates translations, scores each chapter against an explicit quality gate, applies native critique, and packages a finished `translated_book.epub`. Quality comes from decomposition, context engineering, external-signal verification, and quality gates — scaffolding, not model size.
 
-This repo ships **two runtime harnesses** that share the same 14 agents and 5 skills:
+This repo ships **two runtime harnesses** that share the same 16 agents and 5 skills:
 
 | Harness | Directory | Config | Agents | Skills |
 | :--- | :--- | :--- | :--- | :--- |
@@ -14,9 +14,9 @@ This repo ships **two runtime harnesses** that share the same 14 agents and 5 sk
 - **Antigravity:** Copy the contents of `antigravity/` into your project root. Antigravity discovers the `lexis-plugin` plugin and its agents/skills automatically.
 - **opencode:** Copy the contents of `opencode/` into your project root. opencode discovers agents under `.opencode/agents/` and skills under `.opencode/skills/`, and loads `opencode.json` + `AGENTS.md` as instructions.
 
-## The 14 Subagents
+## The 16 Subagents
 
-`ebook-disbinder` · `toc-generator` · `style-analyzer` · `metadata-generator` · `narrative-summarizer` · `local-lexicographer` · `glossary-manager` · `primary-translator` · `omission-detector` · `stray-phrase-detector` · `stray-phrase-fixer` · `native-critique` · `final-translator` · `ebook-packager`
+`ebook-disbinder` · `toc-generator` · `style-analyzer` · `metadata-generator` · `narrative-summarizer` · `local-lexicographer` · `glossary-manager` · `primary-translator` · `translation-scorer` · `omission-detector` · `stray-phrase-detector` · `stray-phrase-fixer` · `native-critique` · `final-translator` · `consistency-auditor` · `ebook-packager`
 
 ## The 5 Skills
 
@@ -24,8 +24,23 @@ This repo ships **two runtime harnesses** that share the same 14 agents and 5 sk
 
 ## Pipeline Overview
 
-1. **Stage A** (per-chapter, sequential): summarize → extract lexicon → consolidate master glossary.
-2. **Stage B** (per-chapter, sequential): draft → omission loop → stray-phrase loop → native critique → finalize.
-3. **Packaging:** synchronize assets, localize metadata, repackage into `translated_book.epub`.
+1. **Stage A** (per-chapter, sequential): summarize (+ inventory special content) → extract lexicon → consolidate master glossary.
+2. **Stage B** (per-chapter, sequential): draft → **quality score** → omission loop → stray-phrase loop → native critique → finalize → **post-finalization regression gate**.
+3. **Book-wide consistency audit** (runs once, before packaging): `consistency-auditor` checks terminology/honorific/register drift across all finalized chapters.
+4. **Packaging:** present a per-chapter quality summary + consistency status, gate on them, then synchronize assets, localize metadata, and repackage into `translated_book.epub`.
 
-See the `lexis-orchestrator` skill for the full workflow, error-handling, and loop thresholds.
+## Design notes for mid-tier (Flash) quality
+
+A real benchmark (an *Ender's Game* chapter, old Pro pipeline vs. Flash-everywhere) showed pure Flash regressing on literary dynamic equivalence, localized slang, domain terminology, register, and completeness. The levers below — refined through a 10× critique→ideation loop and detailed in [`docs/FLASH_QUALITY_PLAN.md`](./docs/FLASH_QUALITY_PLAN.md) — close that gap with scaffolding rather than a bigger model:
+
+- **Exemplar prior (highest leverage).** A complete prior gold passage (`notes/TRANSLATION_EXEMPLARS.md`, operator-authored once) is embedded at the top of `style_guide.md`; every literary agent **continues** that voice rather than following an abstract rule — a mid-tier model is far more reliable at continuation than at rule-following.
+- **Positive-Constraint Document.** `notes/POSITIVE_CONSTRAINTS.md` (operator-authored) locks correct target terms/forms (e.g. a futuristic "desk" → 電子桌, not the literal 課桌); `glossary-manager` treats it as authoritative.
+- **Zero-generation repair.** The stray-phrase detector copies pre-authored replacement sentences into repair blocks and the fixer swaps them verbatim — no dynamic-equivalent generation in the repair path (the operation Flash fails).
+- **Scene chunking + truncation guard.** Long chapters are translated scene-by-scene (boundaries resolved by grep), and a script-independent scan plus an `ebook-packager` integrity gate ensure a truncation placeholder can never reach the EPUB.
+- **Model chosen at the harness level.** No agent pins a `model:` — every agent inherits whatever model the parent/harness/session is configured to use (both harnesses are symmetric). The pipeline is designed so a mid-tier (Flash-class) default reaches high quality via the scaffolding above; point the harness at a stronger model if you want one. See each `AGENTS.md`.
+- **Book-wide consistency.** `consistency-auditor` runs once before packaging to catch cross-chapter terminology/honorific/register drift the per-chapter agents can't see.
+- **Quality gate.** `translation-scorer` emits a markdown scorecard (Adequacy/Fluency/Style) ending in a `SCORE_VERDICT:` sentinel, used post-draft and as a post-finalization regression gate; a `FAIL` blocks silent progress and packaging.
+- **Robust structured output.** Reports are Markdown with single trailing `STATUS:`/`SCORE_VERDICT:` sentinels read tolerantly (last line, case-insensitive, fail-safe on malformation) — JSON is reserved for `master_glossary.json` only, since forcing JSON degrades mid-tier prose.
+- **Special-content fidelity.** Footnotes, tables, verse, ruby, and captions get per-type strategies threaded through summarizer → translator → critique → finalizer.
+
+See `docs/` for the redesign blueprint, the SOTA research digest, and the full ideation/critique loop ledger. See the `lexis-orchestrator` skill for the full workflow, error-handling, and loop thresholds.

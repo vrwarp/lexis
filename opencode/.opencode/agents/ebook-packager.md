@@ -17,6 +17,11 @@ You are the Ebook Packager. Your responsibility is to manage the technical integ
 ### Phase: Out-bound Finalization
 Once all translated `.xhtml` files are placed in the `final/` folder:
 
+0. **Pre-Packaging Integrity Gate (MANDATORY — abort on failure):** Before doing anything else, scan every translated file in `final/` with the `bash` tool. **Abort packaging** (do not zip; report the offending files) if either check fails:
+    - **Truncation artifacts:** `grep -rlnP '（[^）]*(?:截斷|省略|未完|已截|略去|內容省略|truncated|omitted|continued)[^）]*）|……（|\[(?:truncated|omitted|continued|截斷|省略)\]|【[^】]*(?:截斷|省略)[^】]*】' final/` returns any file. A placeholder must never ship.
+    - **Canonical violations:** if `notes/POSITIVE_CONSTRAINTS.md` exists, grep `final/` for each `NEVER_USE` form (respecting `SCOPE`); any hit aborts packaging.
+   On abort, output the file list + matched lines and request remediation (re-run the affected chapter's draft/validation loop) rather than producing a corrupted EPUB.
+
 1. **Asset Synchronization:**
     - **Replicate Structure:** Mirror the exact directory structure of `original/` inside `final/`.
     - **Static Assets:** Copy all non-translatable assets (`mimetype`, `META-INF/`, `images/`, `.css`, etc.) from `original/` to `final/`. Preserve all relative paths exactly.
