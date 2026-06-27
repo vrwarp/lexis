@@ -43,14 +43,17 @@ These two optional, human/operator-authored Markdown files are the highest-lever
 - Contains **2-3 complete, consecutive source→target passage pairs** that demonstrate the desired target voice: at minimum one casual peer-dialogue block (showing localized slang/particles in situ) and one interior-monologue block (showing sentence rhythm and nominalization avoidance, with sentence count preserved — do not compress).
 - Authored once before any chapter runs, from an existing gold translation of a sample passage, or by an operator/editor. This is the single strongest register lever: a model **continues** a high-quality passage far more reliably than it follows an abstract style rule.
 - `style-analyzer` embeds this file verbatim as the opening `## Register Exemplars (continue this voice)` section of `style_guide.md`, so it reaches every literary agent (`primary-translator`, `final-translator`, `native-critique`, `stray-phrase-fixer`) through existing plumbing.
+- **Label each exemplar by register** so the per-scene drafting step can inline the matching one (scene register tags are `DIALOGUE`, `INTERIORITY`, `ACTION`/`COMMAND`, `MIXED`). Provide at least a `DIALOGUE` and an `INTERIORITY` exemplar; an `ACTION` one helps. For child-POV books, note the child-voice spec in each: mid-sentence terminal particles, casual register, an upper bound of ~2 clauses per sentence, and dialogue→interiority transitions.
 - Format is free Markdown; recommended:
   ```markdown
-  ## Exemplar 1 — casual peer dialogue
+  ## Exemplar — DIALOGUE (casual peer banter)
   SOURCE:
   "..."
   TARGET:
   「...」
-  ## Exemplar 2 — interior monologue
+  ## Exemplar — INTERIORITY (interior monologue; preserve sentence count, avoid nominalization)
+  ...
+  ## Exemplar — ACTION (fast action/command beats)
   ...
   ```
 

@@ -97,6 +97,8 @@ Long chapters translated in one shot cause a mid-tier model to truncate (droppin
 
 Also flag the `CHAPTER_FRAME`: if the chapter opens with pre-scene framing material (e.g. a disembodied dialogue between unnamed adults before the main narrative), describe it as its own first element so it is never dropped.
 
+Tag each scene with a **register** so the translator can use the matching exemplar: `DIALOGUE` (dialogue-dominant), `INTERIORITY` (interior monologue / description), `ACTION` (fast action), `COMMAND` (orders/authority), or `MIXED`. Judge by what dominates the scene's word count.
+
 **Output Format (`.scenes.md`):**
 ```markdown
 ## Chapter Frame
@@ -108,9 +110,16 @@ Also flag the `CHAPTER_FRAME`: if the chapter opens with pre-scene framing mater
 ### Scene 1
 - starts: <content description of where this scene begins>
 - ends: <content description of where it ends>
+- register: DIALOGUE|INTERIORITY|ACTION|COMMAND|MIXED
 - search_hints: <3-5 distinctive words near the start>
 ### Scene 2
 ...
 ```
+
+### Task 5: Committed Forms & Domain Alerts (appended to `.challenges.md`)
+Two short sections that pre-commit hard renderings so the translator never has to invent them under pressure:
+
+- `## Committed Forms` — for each recurring context-dependent term, idiom, or nickname whose natural target form is NOT a literal rendering (e.g. a derisive nickname, a culture-bound idiom), give: the source form, 2-3 distinctive nearby words (a keyword anchor, since you cannot reliably quote the source verbatim), and the committed target form to use on EVERY occurrence. The translator applies these from first occurrence.
+- `## Domain Term Alerts` — flag any **mundane noun used in an anomalous way** that signals a specialized/world-building meaning (e.g. a "desk" that "snaps shut" or is "logged into" — a datapad, not furniture; a cohort noun like "Launchies"). Give the source term + why a generic literal rendering would be wrong, so the glossary/translator pick the specialized form. Omit either section if empty (no placeholder).
 
 Do not translate the text. Output only the requested files. Do not provide conversational filler.
