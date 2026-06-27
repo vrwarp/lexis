@@ -63,6 +63,9 @@ Process each file in `notes/contents.json` **sequentially, one at a time**:
 
 *Once ALL files in the table of contents have completed Stage A, proceed to Stage B.*
 
+### Phase 3.5: Name Confirmation Gate (one-time, before Stage B)
+Before any chapter enters Stage B, present the `proper_noun` entries (names, nicknames, callsigns) from `master_glossary.json` to the operator for one-time confirmation, and record the approved canonical forms in `notes/confirmed_names.md`. This is the cheapest fix for nickname/name mis-rendering (e.g. a derisive nickname translated literally instead of adapted). It is an operator gate, not a model step; if the operator skips it, proceed with the glossary forms and log `NAMES_UNCONFIRMED`.
+
 ### Phase 4: Stage B - Per-Chapter Production Lifecycle
 Process each file **sequentially, one at a time**:
 
@@ -71,7 +74,7 @@ Whole-chapter one-shot drafting causes a mid-tier model to truncate long chapter
 1. **Resolve scenes [bash].** Read `notes/<filename>.scenes.md`. For each scene's `search_hints`, `grep -n` the hint words in `original/<filename>` to find that scene's start line; derive each scene's `[start_line, end_line)` range (a scene ends where the next begins; include the `Chapter Frame` as scene 0 if present). Write the verified ranges to `notes/<filename>.verified_scenes.json`.
    - If the chapter is short (single scene) or `scenes.md` lists one scene, treat the whole file as one scene — no chunking needed.
    - If a hint resolves to zero or multiple ambiguous locations, request a longer/more-distinctive description for that scene and retry. If still unresolved, write `STATUS: SCENE_BOUNDARY_UNRESOLVED`, surface it, and request guidance. **Never silently fall back to whole-chapter one-shot drafting** — that is the failure mode being prevented.
-2. **Draft per scene.** For each verified scene in order, invoke `primary-translator` with that scene's source span (extract the line range and pass it inline). Append each returned translation to `draft/<filename>`. The translator must never emit a placeholder; if a scene still comes back short, re-invoke it on that scene alone (cap 2).
+2. **Draft per scene.** For each verified scene in order, invoke `primary-translator` with that scene's source span (extract the line range and pass it inline). If `notes/calque_prohibitions.md` exists, inline its contents as a `## FORBIDDEN CONSTRUCTIONS` block immediately before the source span (the agent also carries built-in calque defaults, so this is an optional per-book extension). Append each returned translation to `draft/<filename>`. The translator must never emit a placeholder; if a scene still comes back short, re-invoke it on that scene alone (cap 2).
 3. The assembled `draft/<filename>` is the "first draft" consumed by Step 4.0.
 
 On antigravity (where the orchestrator lacks `run_command`), route the grep/range-resolution steps through `stray-phrase-detector`, which holds `grep_search`/`run_command`; the logic is identical.
@@ -96,6 +99,7 @@ On antigravity (where the orchestrator lacks `run_command`), route the grep/rang
   2. On `STATUS: TRUNCATION_ARTIFACT` (a placeholder/truncation was found — the draft is incomplete): identify the affected scene from the reported line numbers, re-invoke `primary-translator` on that scene's verified source span (per Step 4.0a), re-assemble `draft/<filename>`, and re-run the detector. Cap at 2 truncation retries per chapter; if still truncated, surface it and request guidance — never advance a chapter whose draft contains a placeholder.
   3. On `STATUS: ISSUES_FOUND`: invoke `stray-phrase-fixer`, which applies any `## Repair Block` entries as literal swaps (PCD canonical-term and de-calque fixes) and translates the remaining stray phrases, updating `draft/<filename>`.
   4. On `STATUS: ERROR` or a malformed/missing sentinel: apply the malformation fail-safe — do not treat as CLEAN; re-invoke once; then request guidance.
+- **Structure-deficit advisory:** Independently of the `STATUS:` sentinel, if the stray report contains a `## Structure Deficit` section, the draft likely over-compressed the source (merged sentences / collapsed dialogue turns). Surface it to the operator and carry it into the native-critique step (which must not suggest further merges); it is advisory and does not block the loop. (A future structural pass may re-translate the affected scene; for now it is a flagged review item.)
 
 #### Step 4.3: Refinement (Native Critique)
 - Invoke `native-critique` to generate `critique/<filename>.critique.md`.

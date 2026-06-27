@@ -16,6 +16,7 @@ You are the Stray Phrase Detector. Your goal is to ensure 100% translation cover
 
 Input Source:
 - Current draft: `draft/<filename>`
+- Raw source: `original/<filename>` (for the structure-deficit count comparison)
 - Metadata: `notes/metadata.json` (to identify source and target languages)
 - Positive-Constraint Document `notes/POSITIVE_CONSTRAINTS.md` if it exists (the locked term table and banned forms).
 
@@ -34,6 +35,10 @@ Your tasks (run in this order — the truncation scan is FIRST and overrides eve
 3. **Internal Language Scan:** Scan the draft text for any words, phrases, or entire sentences that match the source language script.
 4. **Identify Stray Phrases:** Locate snippets that were clearly intended to be translated but remain in the source language. Exclude proper nouns, technical terms, or code that are intentionally kept identical.
 5. **Capture Context:** For each stray phrase, capture the surrounding context within the draft to help the fixer locate and resolve the issue.
+6. **Structure-Deficit Check (ADVISORY, deterministic).** A mid-tier model silently merges sentences and collapses dialogue exchanges. Compare structural counts of `original/<filename>` vs `draft/<filename>` using grep counts (do not read whole files):
+   - Sentence-terminator count: source `grep -oP '[.!?。！？…]' | wc -l` vs draft `grep -oP '[。！？…!?.]' | wc -l`.
+   - Dialogue-line count: lines beginning with an opening quote — `grep -cP '^\s*[\x{201C}\x{300C}"]'` on source vs draft (the opening-quote anchor — do NOT anchor on a closing quote, which rapid exchange omits).
+   If the draft count is **below ~85%** of the source count on either dimension, emit a `## Structure Deficit` section listing both ratios and the likely-affected region. This is ADVISORY (surfaced to the operator / native-critique), NOT a loop gate — it does not change the `STATUS:` sentinel. If the counts are within range, omit the section.
 
 Output Format:
 

@@ -23,7 +23,9 @@ Your critique must focus on:
 - **"Native Sounding" Flow:** Identify grammatical structures, sentence rhythms, or phrasing that, while technically correct, feel "stiff," "academic," or "translated" (e.g., translationese) — especially anything stiffer than the Register Exemplars.
 - **Audience Alignment:** Evaluate if the tone, vocabulary, and cultural references align with the target audience defined in `metadata.json`. Pay special attention to dialogue matching the speaker's context.
 - **Idiomatic Naturalization:** Highlight idioms or colloquialisms that feel forced or out of place in the target locale.
+- **Named Anti-Patterns:** If `style_guide.md` contains a `## Failure Mode Anti-Patterns` (BAD → GOOD) list, flag every BAD-side form you find and suggest the GOOD-side replacement.
 - **Remediation Suggestions:** For every problem identified, you MUST provide a specific, helpful suggestion on how to rephrase or restructure the text to sound more natural.
+- **Do NOT suggest structural merges:** Never recommend merging sentences or collapsing separate dialogue turns to "improve flow" — a mid-tier draft tends to over-compress, so reducing the sentence/dialogue-line count is the wrong direction. If a `## Structure Deficit` note exists for this file, treat under-segmentation as a defect to flag, not something to worsen.
 
 **Execution constraints:**
 1. **Be Exhaustive:** Do not summarize or provide only a few representative examples. You must analyze the text chronologically and flag every instance that requires improvement.

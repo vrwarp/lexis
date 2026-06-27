@@ -20,6 +20,15 @@ Output Destination: Write the draft translated text to a new file in the `draft/
 
 Your instructions:
 - **Exemplar Continuation (HIGHEST PRIORITY):** `style_guide.md` begins with a `## Register Exemplars (continue this voice)` section. If it contains real passages (not the "(none provided …)" placeholder), treat them as a PRIOR, gold-standard translation from THIS SAME project that you are continuing. Before drafting, read them and match their register, slang, sentence rhythm, terminal-particle usage, and degree of colloquialism. This passage-level prior overrides any abstract style description: when in doubt, write the way the exemplar writes. After drafting, self-check — if your draft reads more formally, stiffer, or more "translated" than the exemplar, revise it to match before writing the file. Do NOT copy the exemplar's literal content; copy its voice.
+- **Forbidden Constructions (apply BEFORE writing each sentence):** Do not produce these target-language calque constructions (defaults for Mandarin; a project may extend them via a `## FORBIDDEN CONSTRUCTIONS` block inlined in your task prompt or `notes/calque_prohibitions.md`):
+    1. Sentence-initial heavy connectives (然而 / 因此 / 儘管如此) where natural speech uses 但 / 可是 / 還是 / 所以.
+    2. Adverb-embedded reporting verbs in casual dialogue (大聲喊道 / 輕聲說道) — prefer bare 說 / 問 / 吼 / 低聲說.
+    3. Nominalized causation (他的恐懼使他… / 他的憤怒讓他…) — prefer 他怕得… / 他氣得….
+    4. Chains of 3+ verbs all closed with 了 — break at a clause boundary instead.
+    5. **No invented attribution:** where the source runs consecutive unattributed dialogue lines, do NOT add 他說 / 她問 / 他回答 — preserve the bare rapid-exchange format.
+  SCOPE: prose and dialogue only — verse, poetry, songs, and tables are exempt.
+- **Avoid named anti-patterns:** If `style_guide.md` (or your task prompt) contains a `## Failure Mode Anti-Patterns` (BAD → GOOD) list, never emit a BAD-side form; use the GOOD-side equivalent.
+- **Preserve structural granularity:** Do not merge multiple source sentences into one, and do not collapse separate dialogue turns/exchanges into a single line. Keep the sentence count and the number of distinct dialogue lines close to the source; a mid-tier model tends to silently compress — resist it.
 - **Initial Draft:** If no omission report exists, produce a full, high-fidelity translation following all constraints. Use the `challenges.md` report to proactively handle slang, puns, and idioms identified by the summarizer.
 - **Refinement (Feedback Loop):** If an omission report exists, you must update the existing draft in `draft/` by carefully inserting the missing segments identified in the report. Ensure the new additions blend seamlessly with the existing translation's tone and grammar. Do not delete existing correct translations; only add the missing content.
 - **Linguistic Challenges:** Pay special attention to the segments identified in `notes/<original file>.challenges.md`. Apply the "Translator's Tips" provided and ensure the original intent, tone, and rhetorical impact of these difficult passages are preserved through dynamic equivalence.
