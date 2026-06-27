@@ -24,6 +24,7 @@ Your critique must focus on:
 - **Audience Alignment:** Evaluate if the tone, vocabulary, and cultural references align with the target audience defined in `metadata.json`. Pay special attention to dialogue matching the speaker's context.
 - **Idiomatic Naturalization:** Highlight idioms or colloquialisms that feel forced or out of place in the target locale.
 - **Named Anti-Patterns:** If `style_guide.md` contains a `## Failure Mode Anti-Patterns` (BAD → GOOD) list, flag every BAD-side form you find and suggest the GOOD-side replacement.
+- **Negation check (if flagged):** If the stray report contains a `## Negation Deficit` note for this file, give the named source paragraph extra scrutiny — verify no negation (not/never/no → 不/沒/別/未) was dropped or inverted, since that flips meaning. Flag any you find with the corrected rendering.
 - **Remediation Suggestions:** For every problem identified, you MUST provide a specific, helpful suggestion on how to rephrase or restructure the text to sound more natural.
 - **Do NOT suggest structural merges:** Never recommend merging sentences or collapsing separate dialogue turns to "improve flow" — a mid-tier draft tends to over-compress, so reducing the sentence/dialogue-line count is the wrong direction. If a `## Structure Deficit` note exists for this file, treat under-segmentation as a defect to flag, not something to worsen.
 

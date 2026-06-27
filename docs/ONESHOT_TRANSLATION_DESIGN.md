@@ -6,7 +6,7 @@
 >
 > Rejected (with reasons in §4): back-translation/DUAL-REFLECT and blanket best-of-N (cost-unjustified / reference metrics select the literal-but-wrong candidate), forced-JSON intermediates and verbatim-quote anchors (parse-unreliable on a tokenizer-less pipeline), and any self-critique-then-apply chain (blind iteration / self-bias on a mid-tier model).
 >
-> Design proposal — not yet implemented. The cheap bundle (C1–C4) is +0 model-calls/scene; the structural bet is funded after an A/B re-run of the Ender's Game Ch.7 benchmark (§3).
+> **Implementation status: FULLY IMPLEMENTED** across both harnesses (cheap bundle C1–C4 and the structural bet C5–C10, S1, S2). The pipeline *machinery* is in place; the book-specific operator assets it consumes (register-labeled `TRANSLATION_EXEMPLARS.md`, `POSITIVE_CONSTRAINTS.md`, optional `calque_prohibitions.md`, `confirmed_names.md`) are authored once per book — see the `lexical-management` skill §5. Happy-path Stage-B model calls per scene are unchanged; the only added conditional call is the gated, capped, reverting particle-retranslation (C9-R / Step 4.2b). Validate against the Ender's Game Ch.7 A/B benchmark (§3) before relying on it for a production book.
 
 ---
 
