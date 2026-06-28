@@ -66,3 +66,21 @@ The judge reported a "scope mismatch / ~40% of text has no source" and a "scope-
 | `ebook-packager` | Pre-packaging backstop extended to abort on source-language leakage / leaked meta-text / proper-noun variance |
 
 Worked-example outputs (v1 with the leak, v2 clean) live under [`examples/en-zh-TW/ch7/`](./examples/en-zh-TW/ch7/).
+
+## Follow-up: the same hardened pipeline on a *haiku* workhorse (the floor)
+
+To find the capability floor, the **hardened** pipeline was rerun with the workhorse dropped to `haiku` (weaker than Flash; integrity gates implemented as real deterministic JS — leak scan + name-variant swap; opus as judge), then compared head-to-head against sonnet-v2.
+
+**Verdict: haiku is below the floor — but the pipeline failed *safe*, not silent.** The scorer's integrity precondition issued FAIL on all 5 scenes; the leak gate detected leakage on every scene; the deterministic name-swap *did* fix Bonzo (波佐/班佐→邦佐 ×60), Petra, and desk. But haiku **could not stop narrating its own reasoning** into the output channel ("Let me produce the final translation…", "Based on the system prompt…") — 10 regenerations, 70 residual leaks, never one clean pass. opus scored it ~3.6/10 vs sonnet-v2 ~8.0/10 (REJECT), with a fatal recurring domain error ("frozen" soldier → 被罷免, "impeached from office"). Every dimension lost to sonnet-v2 by 2–7 points.
+
+Two things this run proved:
+1. **The guardrails work as fail-safes** — a too-weak workhorse is *blocked* (FAIL + HOLD), not shipped. That is the correct behavior.
+2. **Scaffolding density can backfire on a weak model** — the judge observed the dense multi-constraint prompt "actively confused the weaker model into looping and leaking." A strong model uses the scaffolding effortlessly; a mid one needs a deterministic *post-process* safety net, not denser prompts.
+
+**Flash implication (opus):** Flash sits between haiku and sonnet, so expect **partial recovery, not parity** — competence errors (frozen→罷免, calques) scale with strength and Flash should clear most (~6–7), but *instruction-following collapse* (looping, meta-leak, name drift) does not scale smoothly and is the load-bearing risk. Validate Flash specifically on (a) one clean pass / no meta-leak and (b) name-lock + the 凍結/罷免-class domain terms, backed by a deterministic name-lock swap + meta-text stripper.
+
+**Two bugs this run surfaced in the gates themselves (now fixed):**
+- **Overlapping name-swap corruption** — a `never_variants` form that is a *prefix of the canonical* (`敵方的門在下` vs canonical `敵方的門在下面`) double-applied and produced `敵方的門在下面面`. Fixed: `glossary-manager` must not emit a `never_variants` form that is a substring of the canonical; `stray-phrase-detector`/`-fixer` apply swaps longest-first, non-overlapping, and skip any `Find` that is a substring of its `Replace`.
+- **Blind leak-regeneration loops** on a weak model. Fixed: Step 4.4b now **strips** leaked agent-narration deterministically (`stray-phrase-fixer` Instruction 0) *before* regenerating, and only regenerates if the strip leaves a real omission or the leak persists; HOLD (never ship) if it still leaks.
+
+The contaminated haiku transcript + result JSON are retained as evidence in the working scratchpad (not committed — it is a corrupted artifact, not a reference translation).
