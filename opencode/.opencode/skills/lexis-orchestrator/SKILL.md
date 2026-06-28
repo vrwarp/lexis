@@ -77,7 +77,7 @@ Whole-chapter one-shot drafting causes a mid-tier model to truncate long chapter
    - If the chapter is short (single scene) or `scenes.md` lists one scene, treat the whole file as one scene — no chunking needed.
    - If a hint resolves to zero or multiple ambiguous locations, request a longer/more-distinctive description for that scene and retry. If still unresolved, write `STATUS: SCENE_BOUNDARY_UNRESOLVED`, surface it, and request guidance. **Never silently fall back to whole-chapter one-shot drafting** — that is the failure mode being prevented.
 2. **Per-scene prep [bash, deterministic].** For each scene span, compute and stash (in `notes/<filename>.verified_scenes.json`) the inputs the translator needs inlined:
-   - **Glossary Reminder** — `grep` the scene span for `master_glossary.json` source keys and collect the `{source → canonical target}` pairs that actually appear (so the translator gets only the relevant terms; illustrative en→zh-TW: 電子桌 / 發射生).
+   - **Glossary Reminder** — `grep` the scene span for `master_glossary.json` source keys and collect the `{source → canonical target}` pairs that actually appear (so the translator gets only the relevant terms; illustrative en→zh-TW: 電子桌 / 發射生). **Plus a global Name Lock: ALWAYS append EVERY `proper_noun` entry's `{romanization → canonical target}` (and its `never_variants`), even names not detected in this scene.** Names are book-global, and a per-scene mid-tier model that is not handed the exact locked form WILL re-coin a different romanization (the dominant consistency failure — e.g. a transfer-slip rendering Bonzo as 波佐 while the body says 班佐). The translator must use these exact forms in prose, dialogue, AND any structured block (slips, signs, orders) in the span.
    - **Structure floor** — count sentence terminators and dialogue-opening lines in the span using the terminator/dialogue-delimiter classes from `notes/language_profile.md` (skip the dimensions the profile marks N/A, e.g. `sentence_count: paragraph_only`); record the minimums to preserve.
    - **Register** — read the scene's `register:` tag from `scenes.md`.
    (On antigravity, run these greps via `stray-phrase-detector`; the logic is identical.)
@@ -120,6 +120,13 @@ On antigravity (where the orchestrator lacks `run_command`), route the grep/rang
 
 #### Step 4.4: Finalization
 - Invoke `final-translator` to consolidate original text, the refined draft, and the native critique into `final/<filename>`.
+
+#### Step 4.4b: Final-Artifact Integrity Gate (deterministic, runs ON `final/`, BEFORE scoring)
+The `final-translator` (and any critique-application pass) can RE-INTRODUCE integrity defects the draft-stage checks never re-examine — most dangerously a leaked agent reasoning line ("Let me now produce the final translation…") or a re-coined name in a structured block. These are mechanical and must not depend on an LLM verdict. After `final/<filename>` is written:
+1. Invoke `stray-phrase-detector` **on `final/<filename>`** (it runs Task 0b Leaked-Meta-Text / Long-Run-Source scan and Task 11 Name-Variant scan identically on the final).
+2. On a `## Leaked Meta-Text` hit (`LEAK — REGENERATE`): this is a hard failure — identify the affected scene from the line numbers and **re-run that scene's `final-translator` (or `primary-translator` if the leak is in the draft) on its verified span**, re-assemble, and re-run this gate. Never patch around a leak and never advance/package a final containing source-language reasoning text. Cap 2 regenerations per chapter, then surface.
+3. On a `## Name Variant` or `## Glossary Conflict` hit: invoke `stray-phrase-fixer` to apply the Repair Blocks (literal `variant → canonical` swaps, including inside transfer-slip/sign blocks), re-assemble, and re-run this gate.
+4. Only once this gate is clean does the chapter proceed to Step 4.5. (`ebook-packager` re-runs the same leak/variant/truncation scan at packaging as the final backstop.)
 
 #### Step 4.5: Post-Finalization Quality Score (Regression Gate)
 - After `final-translator` writes `final/<filename>` and **before** advancing to the next chapter:

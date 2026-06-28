@@ -65,9 +65,20 @@ Does the draft preserve the author's distinctive voice as described in `style_gu
 
 ---
 
+## Integrity Preconditions (evaluate FIRST, deterministic — they OVERRIDE the craft rubric)
+
+Before any 1–5 craft judgment, read the ENTIRE artifact end-to-end (not just sampled passages — a 3-passage sample is structurally blind to a defect that sits between samples). Then check these three integrity gates. Any one of them that fires forces `SCORE_VERDICT: FAIL` regardless of how good the prose is, and you must name the gate in Critical Issues:
+
+1. **Source-language leakage / meta-text.** Any contiguous run of source-language (e.g. English) words beyond glossary-allowlisted proper nouns and explicitly-foreign in-world phrases, OR any sentence of agent process-text ("Let me…", "I have…", "the prompt", "exemplar", "critique", "remediation"). A target-language deliverable containing an English paragraph or a line of pipeline chatter is unshippable — it can never score above FAIL no matter how fluent the surrounding prose is. (This is a real failure mode that a lenient sampler passes.)
+2. **Proper-noun variance.** The same character/army/place rendered in more than one target form (including a transfer-slip/sign block differing from running prose). Two romanizations of one name is a FAIL-level integrity defect.
+3. **Missing source / scope mismatch.** If you were not given the source span that a stretch of the translation corresponds to, you cannot certify it — do NOT issue a confident PASS on text you cannot verify; report `SCORE_VERDICT: ERROR — unverifiable span` rather than hallucinating a score. (Scoring confidence you do not have is itself a calibration failure.)
+
+If all three preconditions pass, proceed to the craft rubric below. Do not let strong craft scores mask a fired precondition.
+
 ## Mandatory Scratchpad
 
 Before scoring, you MUST reason inside a `<scratchpad>` block. In the scratchpad:
+0. Run the three Integrity Preconditions above and record their result FIRST.
 1. Read and note the target audience and key linguistic guidance from `metadata.json`.
 2. Note the author's 2-3 most distinctive stylistic features from `style_guide.md`.
 3. Sample 3–5 representative passages (beginning, middle, end) and compare source to draft, noting specific strengths and weaknesses for each dimension.
@@ -114,9 +125,9 @@ If there are no critical issues (all dimensions score 4 or 5), write: `No critic
 
 One of these three lines, verbatim, as the final line of the file:
 
-`SCORE_VERDICT: PASS` — Overall ≥ 3.5 and Adequacy ≥ 3
-`SCORE_VERDICT: MARGINAL` — Overall between 2.5 and 3.4, or Adequacy = 2
-`SCORE_VERDICT: FAIL` — Overall < 2.5 or Adequacy ≤ 1
+`SCORE_VERDICT: PASS` — Overall ≥ 3.5 and Adequacy ≥ 3 AND no Integrity Precondition fired
+`SCORE_VERDICT: MARGINAL` — Overall between 2.5 and 3.4, or Adequacy = 2 (and no Integrity Precondition fired)
+`SCORE_VERDICT: FAIL` — Overall < 2.5 or Adequacy ≤ 1, **OR any Integrity Precondition (leakage / proper-noun variance) fired** — an integrity FAIL stands even if the craft scores are high
 ```
 
 **Sentinel rules (MANDATORY):**

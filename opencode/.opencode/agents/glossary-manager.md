@@ -24,9 +24,15 @@ You will receive a list of new terms extracted from the latest chapter and the c
 - Category-Specific Directives: For terms categorized as `idiom` or `slang`, provide a functional baseline in the `translation` field, but you MUST write `usage_notes` that explicitly authorize the downstream Translator to use dynamic equivalence to fit the immediate dialogue context.
 - Alias Cross-Referencing: If you identify aliases (e.g., a character has a nickname), create separate entries for each. The alias entry's translation and usage notes must clearly point to the primary term.
 
+**Romanization / Term Lock (MANDATORY for consistency).** Proper-noun romanization drift — the same name transliterated two or three ways across scenes, including a transfer-slip/sign block differing from running prose — is the dominant consistency failure on a per-scene mid-tier pipeline, and it CANNOT be fixed by telling a per-scene translator "use one form": each scene agent re-coins a form unless it is handed the exact locked one. So you MUST lock it here, as data:
+- Every `proper_noun` entry MUST carry, in addition to the fields below, `"romanization"` (the exact source-script name, e.g. `"Bonzo"`) and `"never_variants"` (a list of plausible WRONG target forms to ban, e.g. for 班佐: `["波佐","邦佐","班左"]`). Pick ONE canonical `translation` and commit to it for the whole book — running prose, dialogue, AND structured blocks.
+- Every in-world `neologism`/`slang` domain term gets the same treatment via `never_variants` (e.g. nullo → 零重, never left as a raw source token; flash suit → 閃光戰鬥服).
+- The orchestrator injects ALL `proper_noun` canonical forms (not just terms detected in a scene) into every scene's Glossary Reminder, and the `stray-phrase-detector` runs a deterministic Name-Variant scan against `romanization`/`never_variants`. Your locks are what make both possible.
+
 Output the updated master glossary in strict JSON format. Each entry in the glossary must be an object containing:
 - "term": The original term.
 - "translation": The established canonical translation.
+- "romanization": (proper_noun only) the exact source-script name; "never_variants": a list of wrong target forms to ban (proper_noun, neologism, slang).
 - "example_sentence": An illustrative sentence from the source text.
 - "usage_notes": Consolidated notes on usage, nuances, context, and dynamic equivalence permissions.
 - "sections": A list of all original filenames where this term has appeared.

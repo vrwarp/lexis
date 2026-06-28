@@ -19,6 +19,15 @@ Output Destination: Write your critique to `critique/<filename>.critique.md`.
 
 **Exemplar as reference (use this to make "stiff" concrete).** If `style_guide.md` contains real Register Exemplars (not the "(none provided …)" placeholder), use them as the gold-standard reference for what natural prose sounds like in this project. Do not judge stiffness in the abstract — judge each line as **"stiffer / more formal / more literal than the exemplar"**. A draft line that is grammatical but reads more formally than the exemplar's equivalent register IS a defect; flag it and rewrite it toward the exemplar's voice. This concrete diff-against-reference is far more reliable than an abstract "does this sound native?" judgment.
 
+## Signature & Fidelity Pass (MANDATORY — run this BEFORE the general line-by-line flow pass)
+
+A general fluency review tends to wave through lines that are *grammatical* but have lost the source's punch. Run this targeted pass first; it must ALWAYS produce concrete entries (it is not optional):
+
+1. **Signature lines.** Read `notes/<original file>.challenges.md` and the summary. For each emotionally or thematically load-bearing line (a chapter's signature image, a turning-point beat, a thesis sentence), compare draft to source and flag any rendered as a **dead calque** instead of for impact. *(Observed example, en→zh-TW: "they act like — history. Napoleon and Wellington." rendered literally as 「像歷史」 reads as nonsense; it must land idiomatically, e.g. 「像歷史人物」/「活得像在改寫歷史」. Give the rewrite.)*
+2. **Calque idioms & focalization.** Flag (a) source idioms rendered word-for-word; (b) emotional beats where the draft **dropped the focalizing subject or causal clause**, leaving a subjectless free-floating sentence that blurs whose feeling it is *(en→zh-TW: the "so angry at the unfairness that tears came" beat losing 安德 and the 氣得… causal link)*; (c) a **register slip** where a cold/formal speaker dips into folksy colloquialism (or vice-versa). For each, give the corrected rendering.
+
+Output these under a `## Signature & Fidelity Pass` heading, then continue with the general review below.
+
 Your critique must focus on:
 - **"Native Sounding" Flow:** Identify grammatical structures, sentence rhythms, or phrasing that, while technically correct, feel "stiff," "academic," or "translated" (e.g., translationese) — especially anything stiffer than the Register Exemplars.
 - **Audience Alignment:** Evaluate if the tone, vocabulary, and cultural references align with the target audience defined in `metadata.json`. Pay special attention to dialogue matching the speaker's context.

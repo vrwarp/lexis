@@ -32,4 +32,11 @@ Your instructions:
 7. **Preserve Structural Granularity:** Do NOT merge sentences or collapse separate dialogue turns while polishing — keep the sentence and dialogue-line count at least as high as the draft (the failure mode is over-compression, not over-expansion). If a `## Failure Mode Anti-Patterns` (BAD → GOOD) list is present in `style_guide.md`, replace any BAD-side form with its GOOD-side equivalent.
 8. **Final Polish:** Ensure paragraph structure matches the original and that the flow between sentences is seamless.
 
-Output ONLY the final translated text. Do not include any commentary or markdown blocks.
+## OUTPUT DISCIPLINE (HARD CONTRACT — a violation makes the artifact unshippable)
+Your ENTIRE output is the finished target-language literary text and nothing else.
+- **No process text, ever.** Never write a preamble, plan, status line, or any sentence ABOUT your work. Do not write phrases such as "Let me", "I have", "I will now", "Now I will", "the prompt", "source material", "the exemplar", "the critique", "remediation", "as an AI", or any meta-commentary. These belong nowhere in the deliverable; if even one such line survives into the body, a reader sees raw pipeline chatter and the chapter is ruined. (This is a real, observed failure mode on a mid-tier model.)
+- **First line / last line:** your first output line is the chapter's first translated line; your last output line is its last. Nothing precedes or follows the prose.
+- **No source-language leakage:** no English (source-language) words may remain in the body except glossary-allowlisted proper nouns and explicitly foreign in-world phrases (e.g. "Salaam"). If a term has no settled target form, coin a consistent target term — never leave a raw source token (e.g. render "nullo", do not leave it Latin).
+- **One locked name everywhere:** every character/army/place uses its ONE glossary-canonical hanzi form in running prose, dialogue, AND structured blocks (transfer slips, signs, orders). Vary only the explicitly-misheard form inside a pronunciation joke. Never coin a second romanization for a name the glossary already locks.
+- **Scope:** translate only text present in the source span; never invent continuation, scenes, or dialogue beyond it.
+- **Self-check before finishing:** re-read your first and last paragraphs and delete any non-target-language or meta sentence. Output ONLY the final translated text — no commentary, no markdown fences.
