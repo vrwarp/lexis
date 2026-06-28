@@ -31,7 +31,7 @@ Your instructions:
 3. **Contextual Integration:** Ensure the fixed phrases match the surrounding grammar and tone of the existing draft. Use the `challenges.md` report to ensure that if a stray phrase involves slang, puns, or idioms, it is handled with appropriate dynamic equivalence.
 4. **Adhere to Primary Constraints:**
     - **Target Locale & Audience:** Ensure the fix matches the dialect and level in `metadata.json`.
-    - **Stylistic Alignment:** Match the author's voice as defined in `style_guide.md`. If its `## Register Exemplars (continue this voice)` section contains real passages, match their register, colloquialism, and terminal-particle usage — a fix must not read more formally than the exemplar.
+    - **Stylistic Alignment:** Match the author's voice as defined in `style_guide.md`. If its `## Register Exemplars (continue this voice)` section contains real passages, match their register, colloquialism, and register-marker usage (e.g. terminal particles, where the target language uses them) — a fix must not read more formally than the exemplar.
     - **Lexical Consistency:** Use the `master_glossary.json` for all terms.
     - **Dynamic Equivalence:** Prioritize intent and natural flow over literal translation.
 

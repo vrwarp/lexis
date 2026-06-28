@@ -10,7 +10,7 @@ This document outlines the trigger rules and changelogs for the `lexis` translat
 
 ## Subagents
 
-The 16 subagents live under `.opencode/agents/`. All are `mode: subagent` and are invoked by the orchestrator skill:
+The 17 subagents live under `.opencode/agents/`. All are `mode: subagent` and are invoked by the orchestrator skill:
 
 | Agent | Role / Phase |
 | :--- | :--- |
@@ -18,6 +18,7 @@ The 16 subagents live under `.opencode/agents/`. All are `mode: subagent` and ar
 | `toc-generator` | Init — `notes/contents.json` |
 | `style-analyzer` | Init — `notes/style_guide.md` |
 | `metadata-generator` | Init — `notes/metadata.json` |
+| `language-profiler` | Init — `notes/language_profile.md` (per-language-pair config driving all deterministic checks) |
 | `narrative-summarizer` | Stage A extraction — per-chapter summaries, challenges & special-content inventory |
 | `local-lexicographer` | Stage A extraction — per-chapter lexicon |
 | `glossary-manager` | Stage A consolidation — `master_glossary.json` |
@@ -64,3 +65,4 @@ If you later want a stronger model only on the literary-cognition agents (`prima
 | 2026-06-26 | Removed all per-agent `model:` pins — every agent now inherits the parent/harness default model; model is chosen once at the harness/session level | Global | Simplify and make both harnesses symmetric; quality is carried by scaffolding, not per-agent tiering |
 | 2026-06-26 | Per-scene translation redesign — cheap bundle (C1–C4): inline calque-prohibition block, Name Confirmation Gate (Phase 3.5), named BAD/GOOD anti-patterns, advisory structure-deficit | Global | Fix per-scene one-shot failures upstream of generation / via deterministic checks (see `docs/ONESHOT_TRANSLATION_DESIGN.md`) |
 | 2026-06-26 | Per-scene translation redesign — structural bet (C5–C10, S1, S2): register-tagged scenes + register-matched exemplars; in-scene Glossary Reminder (Step 4.0a grep); Committed Forms & Domain Alerts; paragraph-parity drafting with voice re-anchor; advisory negation/paragraph-elision gates; particle gate + gated particle-retranslation (Step 4.2b, cap 1, revert); scene-scoped omission repair (Step 4.1); reverse-seam INFO flag | Global | Raise per-scene quality on a mid-tier model without extra happy-path calls; the one added conditional call is externally-triggered + gated |
+| 2026-06-27 | Generalization (lean core): added `language-profiler` (17th agent) → `notes/language_profile.md`; de-hardcoded the zh/Ender literals in primary-translator, stray-phrase-detector, glossary-manager, style-analyzer, stray-phrase-fixer, the orchestrator, and the skills (now labelled illustrative en→zh-TW examples); parameterized every deterministic check (stray-source, sentence/dialogue counts, register-marker gate, negation parity) by the profile with loud `SKIP`/`LOW_CONFIDENCE` degradation; added the zh-TW worked-example fixture under `docs/examples/en-zh-TW/`. Full (deferred) design in `docs/GENERALIZATION_DESIGN.md`. | Global | Make the pipeline work for arbitrary books AND arbitrary source→target pairs without losing the zh-TW quality |

@@ -1,11 +1,11 @@
 ---
 name: lexis-orchestrator
-description: Coordinates the lexis book translation pipeline, managing 16 subagents sequentially through Stage A (extraction and glossary building chapter-by-chapter) and Stage B (translation draft, quality scoring, validation loops, critique, finalization chapter-by-chapter), a book-wide consistency audit, and packaging. Trigger this skill whenever you need to start, run, update, or check the status of the book translation pipeline.
+description: Coordinates the lexis book translation pipeline, managing 17 subagents sequentially through Init (incl. a per-language-pair profile), Stage A (extraction and glossary building chapter-by-chapter), Stage B (translation draft, quality scoring, validation loops, critique, finalization chapter-by-chapter), a book-wide consistency audit, and packaging. Trigger this skill whenever you need to start, run, update, or check the status of the book translation pipeline.
 ---
 
 # Lexis Translation Orchestrator
 
-This skill coordinates the execution order, dependencies, and data flows of the 16 subagents in the `lexis` book translation pipeline.
+This skill coordinates the execution order, dependencies, and data flows of the 17 subagents in the `lexis` book translation pipeline. The pipeline is language-pair-agnostic: language-specific behavior is driven by `notes/language_profile.md` (produced at Init), not hardcoded in agent prompts.
 
 ## Execution Mode: Hybrid Sequential
 
@@ -24,6 +24,7 @@ To maintain narrative continuity and lexical integrity—and to prevent overwhel
 | `toc-generator` | Init (Global Context) | `read`, `write`, `glob` | `notes/contents.json` |
 | `style-analyzer` | Init (Global Context) | `read`, `write`, `glob` | `notes/style_guide.md` |
 | `metadata-generator` | Init (Global Context) | `read`, `write`, `glob` | `notes/metadata.json` |
+| `language-profiler` | Init (Global Context) | `read`, `write`, `glob` | `notes/language_profile.md` (per-pair: script, terminators, dialogue delimiters, register markers, negation markers, calque patterns, per-check applicability) |
 | `narrative-summarizer`| Extraction (Per-Chapter) | `read`, `write`, `glob` | `notes/<name>.summary.txt`, `notes/<name>.challenges.md`, `notes/<name>.scenes.md` |
 | `local-lexicographer` | Extraction (Per-Chapter) | `read`, `write`, `glob` | `notes/<name>.lexicon.md` |
 | `glossary-manager` | Consolidation (Per-Chapter)| `read`, `write`, `glob` | Updates `notes/master_glossary.json` |
@@ -52,8 +53,9 @@ In opencode, each "Invoke `<agent>`" step below is performed with the `task` too
 ### Phase 1: Global Context Initialization
 These agents run once at the start of the project:
 1. Invoke `toc-generator` to create `notes/contents.json` (reading order).
-2. Invoke `style-analyzer` to create `notes/style_guide.md` (author's voice and style).
-3. Invoke `metadata-generator` to create `notes/metadata.json` (source/target languages and contrastive guidance).
+2. Invoke `metadata-generator` to create `notes/metadata.json` (source/target languages and contrastive guidance).
+3. Invoke `language-profiler` to create `notes/language_profile.md` — the per-language-pair profile (script relationship, sentence terminators, dialogue delimiters, register system + colloquial markers, negation markers, calque patterns, and the applicability/mode of each deterministic check). **Operator review gate:** surface the profile for confirmation before Stage B; the downstream checks obey it, so a wrong profile mis-configures them. Log `PROFILE_UNCONFIRMED` if the operator skips review.
+4. Invoke `style-analyzer` to create `notes/style_guide.md` (author's voice and style; it reads the language profile and embeds the Register Exemplars).
 
 ### Phase 2 & 3: Stage A - Per-Chapter Extraction & Consolidation Loop
 Process each file in `notes/contents.json` **sequentially, one at a time**:
@@ -75,8 +77,8 @@ Whole-chapter one-shot drafting causes a mid-tier model to truncate long chapter
    - If the chapter is short (single scene) or `scenes.md` lists one scene, treat the whole file as one scene — no chunking needed.
    - If a hint resolves to zero or multiple ambiguous locations, request a longer/more-distinctive description for that scene and retry. If still unresolved, write `STATUS: SCENE_BOUNDARY_UNRESOLVED`, surface it, and request guidance. **Never silently fall back to whole-chapter one-shot drafting** — that is the failure mode being prevented.
 2. **Per-scene prep [bash, deterministic].** For each scene span, compute and stash (in `notes/<filename>.verified_scenes.json`) the inputs the translator needs inlined:
-   - **Glossary Reminder** — `grep` the scene span for `master_glossary.json` source keys and collect the `{source → canonical target}` pairs that actually appear (so the translator gets only the relevant terms, e.g. 電子桌 / 發射生).
-   - **Structure floor** — count sentence terminators (`grep -oP '[.!?]'`) and dialogue-opening lines (`grep -cP '^\s*[\x{201C}\x{300C}"]'`) in the span; record the minimums to preserve.
+   - **Glossary Reminder** — `grep` the scene span for `master_glossary.json` source keys and collect the `{source → canonical target}` pairs that actually appear (so the translator gets only the relevant terms; illustrative en→zh-TW: 電子桌 / 發射生).
+   - **Structure floor** — count sentence terminators and dialogue-opening lines in the span using the terminator/dialogue-delimiter classes from `notes/language_profile.md` (skip the dimensions the profile marks N/A, e.g. `sentence_count: paragraph_only`); record the minimums to preserve.
    - **Register** — read the scene's `register:` tag from `scenes.md`.
    (On antigravity, run these greps via `stray-phrase-detector`; the logic is identical.)
 3. **Draft per scene.** For each verified scene in order, invoke `primary-translator` with that scene's source span, inlining immediately before the span (most-salient last): a `## FORBIDDEN CONSTRUCTIONS` block if `notes/calque_prohibitions.md` exists; the scene's `## Glossary Reminder`; the scene `register`; and the `MANDATORY STRUCTURE` floor (min sentence / dialogue-line counts). Append each returned translation to `draft/<filename>`. The translator must never emit a placeholder; if a scene comes back short, re-invoke it on that scene alone (cap 2).
@@ -109,8 +111,8 @@ On antigravity (where the orchestrator lacks `run_command`), route the grep/rang
 #### Step 4.2b: Particle Retranslation (register gate — externally-triggered, gated, cap 1)
 - If the stray report flagged `## Particle Absent` for any `DIALOGUE`/`INTERIORITY` scene (the register likely came out flat/formal):
   1. Back up the current `draft/<filename>` to `notes/<filename>.draft_backup`.
-  2. Re-invoke `primary-translator` on that scene's span with the register-matched exemplar, the `## Failure Mode Anti-Patterns`, the scene `## Glossary Reminder`, and an explicit instruction to use TW terminal particles in dialogue/interiority; re-assemble.
-  3. Re-run the particle grep. **Accept** the retranslation only if particles are now present AND no new truncation/stray issue appeared; **otherwise REVERT** to the backup. Cap: 1 retry per scene.
+  2. Re-invoke `primary-translator` on that scene's span with the register-matched exemplar, the `## Failure Mode Anti-Patterns`, the scene `## Glossary Reminder`, and an explicit instruction to use the target language's colloquial register markers (from `notes/language_profile.md`) in dialogue/interiority; re-assemble. *(This whole step runs only when the profile's `register_marker_gate` is `apply`; languages without colloquial markers never reach it.)*
+  3. Re-run the register-marker grep. **Accept** the retranslation only if markers are now present AND no new truncation/stray issue appeared; **otherwise REVERT** to the backup. Cap: 1 retry per scene.
 - This is the only added conditional Stage-B model call. It is externally triggered (a deterministic grep, not Flash self-judgment), gated (accept-only-if-improved), and reverts on failure — categorically distinct from a self-critique loop.
 
 #### Step 4.3: Refinement (Native Critique)
