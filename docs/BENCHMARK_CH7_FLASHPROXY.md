@@ -102,4 +102,23 @@ The two gate fixes above were re-tested by running the **same** pipeline on **bo
 1. **Deterministic CJK name-swapping is unsafe for short/common variants** — a name syllable is also an ordinary word. The fix is upstream (glossary must not emit single-char/common-word/sub-compound variants) + token-bounded swaps + flag-don't-swap for risky cases, not a cleverer regex.
 2. **"Gates clean" ≠ "deliverable clean"** — the JS leak scanner reported 0 residual leaks on haiku while opus still found a leaked `**FINAL TRANSLATED TEXT**` header. A deterministic gate is a floor, not a guarantee; the strong-model judge remains the ceiling check.
 
-**Collision-guard fix (applied):** `glossary-manager` must never list a single-char / common-word / sub-compound `never_variants` (set `[]` for one-hanzi names and rely on critique); `stray-phrase-detector`/`-fixer` only auto-swap a complete ≥2-char name token whose match isn't extended by a trailing hanzi, and route risky/short variants to `## Name Variant (review)`. Re-verified on both workhorses after the fix.
+**Collision-guard fix (applied):** `glossary-manager` must never list a single-char / common-word / sub-compound `never_variants` (set `[]` for one-hanzi names and rely on critique); `stray-phrase-detector`/`-fixer` only auto-swap a complete ≥2-char name token whose match isn't extended by a trailing hanzi, and route risky/short variants to `## Name Variant (review)`.
+
+### Re-verification of the collision-guard (commit `3b6a473`) — opus verdict: **YES, an improvement**
+
+Re-ran both workhorses with the collision-safe gate. The regression is repaired:
+
+| | haiku | sonnet |
+| :--- | :-: | :-: |
+| `森→申` corruption (申林/安德申) | n/a | **gone** (申林=0, 森林 intact) |
+| `火蜥蜴軍團團` doubling / `薩拉曼德` split | **gone** | gone |
+| scorer | s0 PASS, s1–s4 FAIL (still HELD below floor) | **all 5 PASS** |
+| opus quality | 5.5/10 (was 3.5; still REJECT) | **6.0/10 (recovered from the 4.5 regression; clean v2 was ~8.0)** |
+
+opus: *"Safe to keep… the catastrophic single-char blind-swap is gone and clean sonnet de-regressed; the Salamander doubling/split are gone on haiku; haiku is still correctly HELD below floor."*
+
+**But the re-verification named the true remaining limit — and it is not a deterministic-gate bug:**
+1. **Model-invented name variants.** Sonnet itself rendered **Wiggin** as 魏金 / 威金 / 韋金 across the chapter, and left Anderson / Pol Slattery in raw Latin. A `never_variants` list can only catch *anticipated* wrong forms — it is structurally blind to forms the model invents. **No deterministic gate can fix this**; it needs the whole-text LLM reader.
+2. **"Gates clean" ≠ "deliverable clean", again.** The JS scanner reported haiku 0 leaks while opus found a leaked editorial annotation (`… → Add particle 啦`) that is mostly target-script (so the Latin scanner can't see it) and a `- Preserves granularity` bullet.
+
+**Closures applied (this round):** the `## Name Variant (review)` bucket was a routing dead-end, so it is now consumed by the **`consistency-auditor`** — which is additionally tasked to detect *model-invented* name variants (a name appearing in >1 target form, or in raw source script) and normalize to canonical; the orchestrator carries the review bucket to it and to `native-critique`. The `stray-phrase-detector` leak scan now also flags editorial-annotation / markdown-header meta-text. **Standing lesson: deterministic gates catch mechanical, anticipated defects; the LLM `consistency-auditor` (whole-text reader) is the necessary final backstop for open-ended ones, and promotion must gate on the judge/auditor, not on the deterministic scanner alone.**
