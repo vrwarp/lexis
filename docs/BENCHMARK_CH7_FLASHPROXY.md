@@ -84,3 +84,22 @@ Two things this run proved:
 - **Blind leak-regeneration loops** on a weak model. Fixed: Step 4.4b now **strips** leaked agent-narration deterministically (`stray-phrase-fixer` Instruction 0) *before* regenerating, and only regenerates if the strip leaves a real omission or the leak persists; HOLD (never ship) if it still leaks.
 
 The contaminated haiku transcript + result JSON are retained as evidence in the working scratchpad (not committed — it is a corrupted artifact, not a reference translation).
+
+## Verification round: the gate fixes vs a DEEPER bug they exposed
+
+The two gate fixes above were re-tested by running the **same** pipeline on **both** haiku and sonnet with the deterministic gate, measuring objectively, and judging with opus. Verdict: **MIXED — the targeted bugs are genuinely fixed, but the run exposed a worse, latent corruption class, so the version was NOT promoted as-is.**
+
+| | haiku | sonnet |
+| :--- | :-: | :-: |
+| residual leaks (was 70 on haiku) | 0 | 1 |
+| leak-regen loops (was 10) | 0 | 2 |
+| `敵方的門在下面面` doubling | gone | gone |
+| opus quality | 3.5/10 (still REJECT) | **4.5/10 — regressed from ~8.0** |
+
+**What the verification caught:** a glossary `never_variants` that is a **single common character** corrupts unrelated text under a blind swap. The workhorse glossary listed `森` (forest) as a wrong form of the name **Shen (申)**, so the deterministic swap rewrote 森林→申林, 森綠→申綠, and Anderson 安德森→安德申 — gutting a clean sonnet rendering. Separately, `薩拉曼德軍 → 火蜥蜴軍團` applied to the longer in-text token `薩拉曼德軍團` produced `火蜥蜴軍團團`.
+
+**Two meta-lessons:**
+1. **Deterministic CJK name-swapping is unsafe for short/common variants** — a name syllable is also an ordinary word. The fix is upstream (glossary must not emit single-char/common-word/sub-compound variants) + token-bounded swaps + flag-don't-swap for risky cases, not a cleverer regex.
+2. **"Gates clean" ≠ "deliverable clean"** — the JS leak scanner reported 0 residual leaks on haiku while opus still found a leaked `**FINAL TRANSLATED TEXT**` header. A deterministic gate is a floor, not a guarantee; the strong-model judge remains the ceiling check.
+
+**Collision-guard fix (applied):** `glossary-manager` must never list a single-char / common-word / sub-compound `never_variants` (set `[]` for one-hanzi names and rely on critique); `stray-phrase-detector`/`-fixer` only auto-swap a complete ≥2-char name token whose match isn't extended by a trailing hanzi, and route risky/short variants to `## Name Variant (review)`. Re-verified on both workhorses after the fix.
