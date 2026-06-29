@@ -20,7 +20,9 @@ Once all translated `.xhtml` files are placed in the `final/` folder:
 0. **Pre-Packaging Integrity Gate (MANDATORY — abort on failure):** Before doing anything else, scan every translated file in `final/` with the `bash` tool. **Abort packaging** (do not zip; report the offending files) if either check fails:
     - **Truncation artifacts:** `grep -rlnP '（[^）]*(?:截斷|省略|未完|已截|略去|內容省略|truncated|omitted|continued)[^）]*）|……（|\[(?:truncated|omitted|continued|截斷|省略)\]|【[^】]*(?:截斷|省略)[^】]*】' final/` returns any file. A placeholder must never ship.
     - **Canonical violations:** if `notes/POSITIVE_CONSTRAINTS.md` exists, grep `final/` for each `NEVER_USE` form (respecting `SCOPE`); any hit aborts packaging.
-   On abort, output the file list + matched lines and request remediation (re-run the affected chapter's draft/validation loop) rather than producing a corrupted EPUB.
+    - **Source-language leakage / meta-text:** for a different-script target (per `notes/language_profile.md` `stray_source_detection: script_scan`), `grep -rnP "[A-Za-z][A-Za-z ,.'\"-]{24,}" final/` for long Latin runs and `grep -rniE "let me|i have|i will|i'll|the prompt|source material|exemplar|critique|remediation|final translation" final/` for leaked agent reasoning. Excluding allowlisted proper nouns / explicitly-foreign in-world phrases, any hit aborts packaging — a deliverable with an untranslated English paragraph or a line of pipeline chatter must never ship.
+    - **Proper-noun variance:** for each `master_glossary.json` `proper_noun` carrying `never_variants`, grep `final/` for those banned forms; any hit (e.g. a transfer-slip name differing from the body) aborts packaging.
+   On abort, output the file list + matched lines and request remediation (re-run the affected chapter's draft/validation loop, or the Step 4.4b integrity gate) rather than producing a corrupted EPUB.
 
 1. **Asset Synchronization:**
     - **Replicate Structure:** Mirror the exact directory structure of `original/` inside `final/`.

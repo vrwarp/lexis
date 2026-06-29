@@ -1,11 +1,11 @@
 ---
 name: lexis-orchestrator
-description: Coordinates the lexis book translation pipeline, managing 16 subagents sequentially through Stage A (extraction and glossary building chapter-by-chapter) and Stage B (translation draft, quality scoring, validation loops, critique, finalization chapter-by-chapter), a book-wide consistency audit, and packaging. Trigger this skill whenever you need to start, run, update, or check the status of the book translation pipeline.
+description: Coordinates the lexis book translation pipeline, managing 17 subagents sequentially through Init (incl. a per-language-pair profile), Stage A (extraction and glossary building chapter-by-chapter), Stage B (translation draft, quality scoring, validation loops, critique, finalization chapter-by-chapter), a book-wide consistency audit, and packaging. Trigger this skill whenever you need to start, run, update, or check the status of the book translation pipeline.
 ---
 
 # Lexis Translation Orchestrator
 
-This skill coordinates the execution order, dependencies, and data flows of the 16 subagents in the `lexis` book translation pipeline.
+This skill coordinates the execution order, dependencies, and data flows of the 17 subagents in the `lexis` book translation pipeline. The pipeline is language-pair-agnostic: language-specific behavior is driven by `notes/language_profile.md` (produced at Init), not hardcoded in agent prompts.
 
 ## Execution Mode: Hybrid Sequential
 
@@ -24,6 +24,7 @@ To maintain narrative continuity and lexical integrity—and to prevent overwhel
 | `toc-generator` | Init (Global Context) | `view_file`, `write_to_file` | `notes/contents.json` |
 | `style-analyzer` | Init (Global Context) | `view_file`, `write_to_file` | `notes/style_guide.md` |
 | `metadata-generator` | Init (Global Context) | `view_file`, `write_to_file` | `notes/metadata.json` |
+| `language-profiler` | Init (Global Context) | `view_file`, `write_to_file`, `list_dir` | `notes/language_profile.md` (per-pair: script, terminators, dialogue delimiters, register markers, negation markers, calque patterns, per-check applicability) |
 | `narrative-summarizer`| Extraction (Per-Chapter) | `view_file`, `write_to_file` | `notes/<name>.summary.txt`, `notes/<name>.challenges.md`, `notes/<name>.scenes.md` |
 | `local-lexicographer` | Extraction (Per-Chapter) | `view_file`, `write_to_file` | `notes/<name>.lexicon.md` |
 | `glossary-manager` | Consolidation (Per-Chapter)| `view_file`, `write_to_file` | Updates `notes/master_glossary.json` |
@@ -48,8 +49,9 @@ To maintain narrative continuity and lexical integrity—and to prevent overwhel
 ### Phase 1: Global Context Initialization
 These agents run once at the start of the project:
 1. Invoke `toc-generator` to create `notes/contents.json` (reading order).
-2. Invoke `style-analyzer` to create `notes/style_guide.md` (author's voice and style).
-3. Invoke `metadata-generator` to create `notes/metadata.json` (source/target languages and contrastive guidance).
+2. Invoke `metadata-generator` to create `notes/metadata.json` (source/target languages and contrastive guidance).
+3. Invoke `language-profiler` to create `notes/language_profile.md` — the per-language-pair profile (script relationship, sentence terminators, dialogue delimiters, register system + colloquial markers, negation markers, calque patterns, and the applicability/mode of each deterministic check). **Operator review gate:** surface the profile for confirmation before Stage B; the downstream checks obey it, so a wrong profile mis-configures them. Log `PROFILE_UNCONFIRMED` if the operator skips review.
+4. Invoke `style-analyzer` to create `notes/style_guide.md` (author's voice and style; it reads the language profile and embeds the Register Exemplars).
 
 ### Phase 2 & 3: Stage A - Per-Chapter Extraction & Consolidation Loop
 Process each file in `notes/contents.json` **sequentially, one at a time**:
@@ -59,6 +61,9 @@ Process each file in `notes/contents.json` **sequentially, one at a time**:
 
 *Once ALL files in the table of contents have completed Stage A, proceed to Stage B.*
 
+### Phase 3.5: Name Confirmation Gate (one-time, before Stage B)
+Before any chapter enters Stage B, present the `proper_noun` entries (names, nicknames, callsigns) from `master_glossary.json` to the operator for one-time confirmation, and record the approved canonical forms in `notes/confirmed_names.md`. This is the cheapest fix for nickname/name mis-rendering (e.g. a derisive nickname translated literally instead of adapted). It is an operator gate, not a model step; if the operator skips it, proceed with the glossary forms and log `NAMES_UNCONFIRMED`.
+
 ### Phase 4: Stage B - Per-Chapter Production Lifecycle
 Process each file **sequentially, one at a time**:
 
@@ -67,8 +72,13 @@ Whole-chapter one-shot drafting causes a mid-tier model to truncate long chapter
 1. **Resolve scenes [run_command/grep_search].** Read `notes/<filename>.scenes.md`. For each scene's `search_hints`, `grep -n` the hint words in `original/<filename>` to find that scene's start line; derive each scene's `[start_line, end_line)` range (a scene ends where the next begins; include the `Chapter Frame` as scene 0 if present). Write the verified ranges to `notes/<filename>.verified_scenes.json`. On antigravity, the orchestrator runs these greps via the `stray-phrase-detector` agent (which holds `run_command`/`grep_search`).
    - If the chapter is short (single scene) or `scenes.md` lists one scene, treat the whole file as one scene — no chunking needed.
    - If a hint resolves to zero or multiple ambiguous locations, request a longer/more-distinctive description for that scene and retry. If still unresolved, write `STATUS: SCENE_BOUNDARY_UNRESOLVED`, surface it, and request guidance. **Never silently fall back to whole-chapter one-shot drafting** — that is the failure mode being prevented.
-2. **Draft per scene.** For each verified scene in order, invoke `primary-translator` with that scene's source span (extract the line range and pass it inline). Append each returned translation to `draft/<filename>`. The translator must never emit a placeholder; if a scene still comes back short, re-invoke it on that scene alone (cap 2).
-3. The assembled `draft/<filename>` is the "first draft" consumed by Step 4.0.
+2. **Per-scene prep [bash, deterministic].** For each scene span, compute and stash (in `notes/<filename>.verified_scenes.json`) the inputs the translator needs inlined:
+   - **Glossary Reminder** — `grep` the scene span for `master_glossary.json` source keys and collect the `{source → canonical target}` pairs that actually appear (so the translator gets only the relevant terms; illustrative en→zh-TW: 電子桌 / 發射生). **Plus a global Name Lock: ALWAYS append EVERY `proper_noun` entry's `{romanization → canonical target}` (and its `never_variants`), even names not detected in this scene.** Names are book-global, and a per-scene mid-tier model that is not handed the exact locked form WILL re-coin a different romanization (the dominant consistency failure — e.g. a transfer-slip rendering Bonzo as 波佐 while the body says 班佐). The translator must use these exact forms in prose, dialogue, AND any structured block (slips, signs, orders) in the span.
+   - **Structure floor** — count sentence terminators and dialogue-opening lines in the span using the terminator/dialogue-delimiter classes from `notes/language_profile.md` (skip the dimensions the profile marks N/A, e.g. `sentence_count: paragraph_only`); record the minimums to preserve.
+   - **Register** — read the scene's `register:` tag from `scenes.md`.
+   (On antigravity, run these greps via `stray-phrase-detector`; the logic is identical.)
+3. **Draft per scene.** For each verified scene in order, invoke `primary-translator` with that scene's source span, inlining immediately before the span (most-salient last): a `## FORBIDDEN CONSTRUCTIONS` block if `notes/calque_prohibitions.md` exists; the scene's `## Glossary Reminder`; the scene `register`; and the `MANDATORY STRUCTURE` floor (min sentence / dialogue-line counts). Append each returned translation to `draft/<filename>`. The translator must never emit a placeholder; if a scene comes back short, re-invoke it on that scene alone (cap 2).
+4. The assembled `draft/<filename>` is the "first draft" consumed by Step 4.0. Optionally, run a reverse-seam grep at each scene join (a tense-marker density cliff, or a pronoun with no antecedent in the prior scene's tail) and record any hits in a non-canonical `notes/<filename>.seam_issues.md` (INFO only — it never blocks; full voice/register seam detection is not grep-reachable and stays a flagged review item).
 
 #### Step 4.0: Initial Quality Score
 - After the chunked initial draft is assembled (before entering the omission loop):
@@ -79,10 +89,10 @@ Whole-chapter one-shot drafting causes a mid-tier model to truncate long chapter
   5. On `SCORE_VERDICT: MARGINAL` or `SCORE_VERDICT: PASS`: proceed to the omission loop. The scorecard remains available on disk for downstream agents.
   6. If the scorecard has no recognizable `SCORE_VERDICT:` line or ends with `SCORE_VERDICT: ERROR`, treat it as `MARGINAL` (proceed with a warning), re-invoke `translation-scorer` once to confirm. Do not block on a malformed scorer output.
 
-#### Step 4.1: Draft Loop (Alternating)
-- Loop the following until `omission-detector` reports `STATUS: COMPLETE`:
-  1. Invoke `primary-translator` to generate or update `draft/<filename>` (utilizing `master_glossary.json`, summaries, and any previous omission reports).
-  2. Invoke `omission-detector` to output `notes/<filename>.omission_report.md`.
+#### Step 4.1: Draft Loop (Alternating, scene-scoped)
+- Loop the following until `omission-detector` reports `STATUS: COMPLETE` (max 3 iterations):
+  1. Invoke `omission-detector` to output `notes/<filename>.omission_report.md` (it tags each omission with a `**Scene:**` id from `verified_scenes.json`).
+  2. For each omission, re-invoke `primary-translator` on **only the affected scene's source span** (per the omission's Scene tag + `verified_scenes.json`), passing the omission report, and re-assemble `draft/<filename>`. Do NOT re-translate the whole chapter (that re-opens the truncation risk scene-chunking closed). If `verified_scenes.json` is absent, fall back to a whole-file refinement pass and log a warning.
 
 #### Step 4.2: Validation Loop (Alternating)
 - Loop the following until `stray-phrase-detector` reports `STATUS: CLEAN` (max 3 iterations):
@@ -90,12 +100,27 @@ Whole-chapter one-shot drafting causes a mid-tier model to truncate long chapter
   2. On `STATUS: TRUNCATION_ARTIFACT` (a placeholder/truncation was found — the draft is incomplete): identify the affected scene from the reported line numbers, re-invoke `primary-translator` on that scene's verified source span (per Step 4.0a), re-assemble `draft/<filename>`, and re-run the detector. Cap at 2 truncation retries per chapter; if still truncated, surface it and request guidance — never advance a chapter whose draft contains a placeholder.
   3. On `STATUS: ISSUES_FOUND`: invoke `stray-phrase-fixer`, which applies any `## Repair Block` entries as literal swaps (PCD canonical-term and de-calque fixes) and translates the remaining stray phrases, updating `draft/<filename>`.
   4. On `STATUS: ERROR` or a malformed/missing sentinel: apply the malformation fail-safe — do not treat as CLEAN; re-invoke once; then request guidance.
+- **Structure-deficit advisory:** Independently of the `STATUS:` sentinel, if the stray report contains a `## Structure Deficit`, `## Paragraph Elision`, or `## Negation Deficit` section, the draft likely over-compressed or dropped a negation. Surface these to the operator and carry them into the native-critique step (which must not suggest further merges and will scrutinize the flagged negation paragraph); they are advisory and do not block the loop.
+
+#### Step 4.2b: Particle Retranslation (register gate — externally-triggered, gated, cap 1)
+- If the stray report flagged `## Particle Absent` for any `DIALOGUE`/`INTERIORITY` scene (the register likely came out flat/formal):
+  1. Back up the current `draft/<filename>` to `notes/<filename>.draft_backup`.
+  2. Re-invoke `primary-translator` on that scene's span with the register-matched exemplar, the `## Failure Mode Anti-Patterns`, the scene `## Glossary Reminder`, and an explicit instruction to use the target language's colloquial register markers (from `notes/language_profile.md`) in dialogue/interiority; re-assemble. *(This whole step runs only when the profile's `register_marker_gate` is `apply`; languages without colloquial markers never reach it.)*
+  3. Re-run the register-marker grep. **Accept** the retranslation only if markers are now present AND no new truncation/stray issue appeared; **otherwise REVERT** to the backup. Cap: 1 retry per scene.
+- This is the only added conditional Stage-B model call. It is externally triggered (a deterministic grep, not Flash self-judgment), gated (accept-only-if-improved), and reverts on failure — categorically distinct from a self-critique loop.
 
 #### Step 4.3: Refinement (Native Critique)
 - Invoke `native-critique` to generate `critique/<filename>.critique.md`.
 
 #### Step 4.4: Finalization
 - Invoke `final-translator` to consolidate original text, the refined draft, and the native critique into `final/<filename>`.
+
+#### Step 4.4b: Final-Artifact Integrity Gate (deterministic, runs ON `final/`, BEFORE scoring)
+The `final-translator` (and any critique-application pass) can RE-INTRODUCE integrity defects the draft-stage checks never re-examine — most dangerously a leaked agent reasoning line ("Let me now produce the final translation…") or a re-coined name in a structured block. These are mechanical and must not depend on an LLM verdict. After `final/<filename>` is written:
+1. Invoke `stray-phrase-detector` **on `final/<filename>`** (it runs Task 0b Leaked-Meta-Text / Long-Run-Source scan and Task 11 Name-Variant scan identically on the final; on antigravity it already holds `grep_search`/`run_command`).
+2. On a `## Leaked Meta-Text` hit (`LEAK — REGENERATE`): this is a hard failure — identify the affected scene from the line numbers and **re-run that scene's `final-translator` (or `primary-translator` if the leak is in the draft) on its verified span**, re-assemble, and re-run this gate. Never patch around a leak and never advance/package a final containing source-language reasoning text. Cap 2 regenerations per chapter, then surface.
+3. On a `## Name Variant` or `## Glossary Conflict` hit: invoke `stray-phrase-fixer` to apply the Repair Blocks (literal `variant → canonical` swaps, including inside transfer-slip/sign blocks), re-assemble, and re-run this gate.
+4. Only once this gate is clean does the chapter proceed to Step 4.5. (`ebook-packager` re-runs the same leak/variant/truncation scan at packaging as the final backstop.)
 
 #### Step 4.5: Post-Finalization Quality Score (Regression Gate)
 - After `final-translator` writes `final/<filename>` and **before** advancing to the next chapter:

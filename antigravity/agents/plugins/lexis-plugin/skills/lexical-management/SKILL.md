@@ -43,18 +43,26 @@ These two optional, human/operator-authored Markdown files are the highest-lever
 - Contains **2-3 complete, consecutive source→target passage pairs** that demonstrate the desired target voice: at minimum one casual peer-dialogue block (showing localized slang/particles in situ) and one interior-monologue block (showing sentence rhythm and nominalization avoidance, with sentence count preserved — do not compress).
 - Authored once before any chapter runs, from an existing gold translation of a sample passage, or by an operator/editor. This is the single strongest register lever: a model **continues** a high-quality passage far more reliably than it follows an abstract style rule.
 - `style-analyzer` embeds this file verbatim as the opening `## Register Exemplars (continue this voice)` section of `style_guide.md`, so it reaches every literary agent (`primary-translator`, `final-translator`, `native-critique`, `stray-phrase-fixer`) through existing plumbing.
+- **Label each exemplar by register** so the per-scene drafting step can inline the matching one (scene register tags are `DIALOGUE`, `INTERIORITY`, `ACTION`/`COMMAND`, `MIXED`). Provide at least a `DIALOGUE` and an `INTERIORITY` exemplar; an `ACTION` one helps. For child-POV books, note the child-voice spec in each: mid-sentence terminal particles, casual register, an upper bound of ~2 clauses per sentence, and dialogue→interiority transitions.
 - Format is free Markdown; recommended:
   ```markdown
-  ## Exemplar 1 — casual peer dialogue
+  ## Exemplar — DIALOGUE (casual peer banter)
   SOURCE:
   "..."
   TARGET:
   「...」
-  ## Exemplar 2 — interior monologue
+  ## Exemplar — INTERIORITY (interior monologue; preserve sentence count, avoid nominalization)
+  ...
+  ## Exemplar — ACTION (fast action/command beats)
   ...
   ```
 
 ### 5b. Positive-Constraint Document — `notes/POSITIVE_CONSTRAINTS.md`
 - A locked term/phrase table that pre-authors the correct target forms so downstream agents never have to *generate* a dynamic equivalent under pressure (the operation a mid-tier model fails). One row per repurposed/specialized term or banned calque. Recommended columns: `SOURCE | USE_ONLY | NEVER_USE | DISAMBIGUATING_ACTION | ALWAYS_REPLACE | FULL_SENTENCE_TEMPLATE | SCOPE`.
-  - `USE_ONLY` = the canonical target (e.g. a futuristic "desk" → 電子桌, "Launchies" → 發射生); `NEVER_USE` = the wrong literal/generic form to ban (課桌, 新兵); `ALWAYS_REPLACE=true` for forms wrong in every context; `FULL_SENTENCE_TEMPLATE` = a complete human-authored replacement sentence the repair path copies verbatim; `SCOPE` = chapter range a ban applies to (default all).
+  - `USE_ONLY` = the canonical target form; `NEVER_USE` = the wrong literal/generic form to ban; `ALWAYS_REPLACE=true` for forms wrong in every context; `FULL_SENTENCE_TEMPLATE` = a complete human-authored replacement sentence the repair path copies verbatim; `SCOPE` = chapter range a ban applies to (default all). *(Illustrative en→zh-TW rows: "desk"→`USE_ONLY` 電子桌 / `NEVER_USE` 課桌; "Launchies"→`USE_ONLY` 發射生 / `NEVER_USE` 新兵.)*
 - `glossary-manager` reconciles `master_glossary.json` to this document (writing `USE_ONLY` as the canonical translation, never a `NEVER_USE` form). Authored once; see the translation-validation skill for how the detector/fixer consume it for zero-generation repair.
+
+### 5c. Optional per-scene-design assets (from `docs/ONESHOT_TRANSLATION_DESIGN.md`, "cheap bundle")
+- **`notes/calque_prohibitions.md`** (optional) — a short `## FORBIDDEN CONSTRUCTIONS` list of source→target calque patterns to ban at generation time, each with a preferred natural alternative. The base patterns come from `notes/language_profile.md` (§Calque / Interference Patterns); this file *extends/overrides* them per book and the orchestrator inlines it immediately before the source span (most salient position). Keep it to ≤6 rows.
+- **`## Failure Mode Anti-Patterns`** — an optional section inside `notes/TRANSLATION_EXEMPLARS.md` listing named BAD → GOOD pairs for register/slang/vocative surfaces *(illustrative en→zh-TW: `親愛的朋友 → 麻吉`; `說屁話 → 在那邊講幹話`)*. `primary-translator` avoids the BAD side; `native-critique`/`final-translator` flag it. Scope it to *enumerated* surfaces only — distributional register is owned by the exemplar prior, not this list.
+- **`notes/confirmed_names.md`** — operator-confirmed canonical names/nicknames/callsigns, produced by the one-time Name Confirmation Gate (orchestrator Phase 3.5) before Stage B, so a derisive nickname is adapted to a natural target form rather than rendered literally *(illustrative en→zh-TW: 針刺, not the literal 小針頭)*.
