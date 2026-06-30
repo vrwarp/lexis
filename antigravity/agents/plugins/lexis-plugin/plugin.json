@@ -1,5 +1,0 @@
-{
-  "name": "lexis-plugin",
-  "description": "Multi-stage sequential book translation pipeline plugin, handling disbinding, TOC/style/metadata initialization, extraction, glossary consolidation, drafting, omission checks, validation, native critique, and packaging.",
-  "version": "1.0.0"
-}
