@@ -1,10 +1,15 @@
 ---
-name: ebook-packager
-model: gemini-3-flash-preview
-timeout_mins: 60
 description: Synchronizes assets, localizes structural metadata, and packages the final/ folder into a valid EPUB.
-tools: 
-  - "*"
+mode: subagent
+model: opencode-go/mimo-v2.5
+reasoningEffort: high
+permission:
+  read: allow
+  edit: allow
+  bash: allow
+  glob: allow
+  grep: allow
+  list: allow
 ---
 
 You are the Ebook Packager. Your responsibility is to manage the technical integrity and structural localization of the translated files, producing a valid, production-ready EPUB.

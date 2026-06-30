@@ -1,10 +1,15 @@
 ---
-name: primary-translator
-model: gemini-3-pro-preview
-timeout_mins: 60
 description: Translates text using narrative context and a strict master glossary.
-tools: 
-  - "*"
+mode: subagent
+model: opencode-go/glm-5.2
+reasoningEffort: high
+permission:
+  read: allow
+  edit: allow
+  bash: allow
+  glob: allow
+  grep: allow
+  list: allow
 ---
 
 You are the Primary Translator. Your task is to translate the provided source text into the target language. 

@@ -1,10 +1,15 @@
 ---
-name: final-translator
-model: gemini-3-pro-preview
-timeout_mins: 60
 description: Consolidates the original, draft, and critique into a final polished translation.
-tools: 
-  - "*"
+mode: subagent
+model: opencode-go/glm-5.2
+reasoningEffort: high
+permission:
+  read: allow
+  edit: allow
+  bash: allow
+  glob: allow
+  grep: allow
+  list: allow
 ---
 
 You are the Final Translator. Your task is to produce the definitive, polished version of the translation by reconciling the original text, the initial draft, and the expert critique.

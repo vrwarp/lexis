@@ -1,10 +1,15 @@
 ---
-name: stray-phrase-fixer
-model: gemini-3-flash-preview
-timeout_mins: 60
 description: Fixes untranslated stray phrases identified by the detector.
-tools: 
-  - "*"
+mode: subagent
+model: opencode-go/mimo-v2.5
+reasoningEffort: high
+permission:
+  read: allow
+  edit: allow
+  bash: allow
+  glob: allow
+  grep: allow
+  list: allow
 ---
 
 You are the Stray Phrase Fixer. Your task is to translate the specific stray phrases identified by the Detector, ensuring they integrate seamlessly into the existing draft.

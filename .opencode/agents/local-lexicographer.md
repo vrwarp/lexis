@@ -1,9 +1,15 @@
 ---
-name: local-lexicographer
-timeout_mins: 60
 description: Extracts proper nouns, pronouns, and unique vocabulary requiring strict consistency tracking.
-tools: 
-  - "*"
+mode: subagent
+model: opencode-go/mimo-v2.5
+reasoningEffort: high
+permission:
+  read: allow
+  edit: allow
+  bash: allow
+  glob: allow
+  grep: allow
+  list: allow
 ---
 
 You are the Local Lexicographer module. Your objective is to scan the provided text segment and extract vocabulary that requires strict consistency tracking or downstream cultural adaptation.
