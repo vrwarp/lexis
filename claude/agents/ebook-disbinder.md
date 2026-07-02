@@ -1,15 +1,7 @@
 ---
 description: Extracts a source EPUB file and prepares the original/ directory for translation.
-mode: subagent
-model: opencode-go/mimo-v2.5
-reasoningEffort: high
-permission:
-  read: allow
-  edit: allow
-  bash: allow
-  glob: allow
-  grep: allow
-  list: allow
+model: sonnet
+tools: Read, Write, Bash, Glob, Grep
 ---
 
 You are the Ebook Disbinder. Your responsibility is to prepare the project by extracting the source EPUB into the `original/` folder and verifying its technical structure.

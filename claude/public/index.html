@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>lexis — EPUB translation studio</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ============ sidebar ============ -->
+    <aside id="sidebar">
+      <div class="brand">
+        <span class="brand-mark">λ</span>
+        <div>
+          <h1>lexis</h1>
+          <p>EPUB translation studio</p>
+        </div>
+      </div>
+
+      <button id="new-project-btn" class="primary wide">＋ New translation</button>
+
+      <nav id="project-list" aria-label="Projects"></nav>
+
+      <form id="new-project-form" class="hidden">
+        <h2>New translation</h2>
+        <label>EPUB file
+          <input type="file" name="epub" accept=".epub" required />
+        </label>
+        <label>Project name <span class="muted">(optional)</span>
+          <input type="text" name="name" placeholder="Defaults to the filename" />
+        </label>
+        <label>Target language
+          <input type="text" name="targetLanguage" placeholder="e.g. Traditional Chinese (Taiwan)" required />
+        </label>
+        <label>Context &amp; instructions <span class="muted">(optional)</span>
+          <textarea name="context" rows="4" placeholder="Audience, register, names to keep, anything the translators should know…"></textarea>
+        </label>
+        <div class="row">
+          <button type="submit" class="primary">Create project</button>
+          <button type="button" id="cancel-new-project" class="ghost">Cancel</button>
+        </div>
+      </form>
+    </aside>
+
+    <!-- ============ main ============ -->
+    <main id="main">
+      <section id="empty-state">
+        <div class="empty-card">
+          <span class="brand-mark big">λ</span>
+          <h2>Translate a book</h2>
+          <p>Upload an EPUB and a target language. An orchestrator agent runs the
+            14-agent pipeline — extraction, glossary building, drafting, omission
+            &amp; stray-phrase auditing, native critique, final polish — and checks
+            in with you before packaging the translated EPUB.</p>
+          <p class="muted">Opus does the translating. Sonnet does everything else.</p>
+        </div>
+      </section>
+
+      <section id="project-view" class="hidden">
+        <header id="project-header">
+          <div class="title-block">
+            <h2 id="project-title"></h2>
+            <div class="subtitle">
+              <span id="project-lang" class="chip lang"></span>
+              <span id="project-status" class="chip status"></span>
+            </div>
+          </div>
+          <div id="project-actions" class="actions">
+            <button id="start-btn" class="primary hidden">▶ Start translation</button>
+            <button id="download-btn" class="primary hidden">⤓ Download EPUB</button>
+            <label id="cover-btn" class="ghost button-like" title="Optional custom cover for the translated EPUB">
+              🖼 Cover<input type="file" id="cover-input" accept=".jpg,.jpeg,.png,.gif,.webp,.svg" hidden />
+            </label>
+            <button id="repackage-btn" class="ghost hidden" title="Rebuild the finished EPUB with the uploaded cover — no agents involved">↻ Repackage</button>
+            <button id="interrupt-btn" class="ghost danger hidden" title="Interrupt the orchestrator">■ Stop</button>
+          </div>
+        </header>
+
+        <!-- pipeline board -->
+        <div id="pipeline-board" aria-label="Pipeline progress"></div>
+
+        <!-- review gate banner -->
+        <div id="review-banner" class="hidden">
+          <div class="review-head">
+            <span class="pulse"></span>
+            <strong>The orchestrator is ready to package and wants your review.</strong>
+          </div>
+          <pre id="review-summary"></pre>
+          <textarea id="review-instructions" rows="3"
+            placeholder="Optional: instructions for another pass (tone tweaks, name fixes, chapters to redo…)"></textarea>
+          <div class="row">
+            <button id="review-approve" class="primary">✓ Approve &amp; package</button>
+            <button id="review-revise" class="ghost">↺ Request another pass</button>
+          </div>
+        </div>
+
+        <div id="workbench">
+          <!-- activity feed + chat -->
+          <div id="feed-pane">
+            <div class="pane-head">
+              <h3>Activity</h3>
+              <label class="toggle"><input type="checkbox" id="show-detail" /> tool detail</label>
+            </div>
+            <div id="feed" role="log"></div>
+            <form id="chat-form">
+              <input id="chat-input" type="text" autocomplete="off"
+                placeholder="Message the orchestrator — ask, steer, request changes…" />
+              <button type="submit" class="primary">Send</button>
+            </form>
+          </div>
+
+          <!-- versions -->
+          <div id="version-pane">
+            <div class="pane-head">
+              <h3>Versions</h3>
+              <button id="snapshot-btn" class="ghost small" title="Snapshot the workspace now">＋ snapshot</button>
+            </div>
+            <ol id="version-list"></ol>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

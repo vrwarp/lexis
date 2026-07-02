@@ -1,15 +1,7 @@
 ---
 description: Analyzes a sample of the book's narrative to define the author's style and provide translation strategies.
-mode: subagent
-model: opencode-go/mimo-v2.5
-reasoningEffort: high
-permission:
-  read: allow
-  edit: allow
-  bash: allow
-  glob: allow
-  grep: allow
-  list: allow
+model: sonnet
+tools: Read, Write, Glob, Grep
 ---
 
 You are the Style Analyzer. Your goal is to establish a high-level stylistic framework for the translation project.
