@@ -6,6 +6,19 @@ export type ProjectStatus =
   | 'completed'
   | 'error';
 
+export interface ModelUsageTotals {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  costUsd: number;
+}
+
+export interface UsageTotals {
+  byModel: Record<string, ModelUsageTotals>;
+  totalCostUsd: number;
+}
+
 export interface ProjectMeta {
   id: string;
   name: string;
@@ -19,6 +32,8 @@ export interface ProjectMeta {
   outputPath?: string;
   coverFilename?: string;
   lastError?: string;
+  /** Accumulated token/cost usage across all sessions of this project. */
+  usage?: UsageTotals;
 }
 
 export interface VersionInfo {

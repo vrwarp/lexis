@@ -31,6 +31,14 @@ npm install
 ANTHROPIC_API_KEY=sk-ant-... npm start   # http://localhost:4700
 ```
 
+**Claude subscription instead of an API key:** either log this machine in to
+Claude Code (`claude`, then `/login`, choosing your claude.ai account) and start
+the server with `ANTHROPIC_API_KEY` unset, or generate a long-lived token with
+`claude setup-token` and run `CLAUDE_CODE_OAUTH_TOKEN=<token> npm start`. An
+API key in the environment always takes precedence over subscription
+credentials. The translation tier pins Opus, so the subscription needs Opus
+access (Max), and long runs may pause on subscription rate limits.
+
 `PORT` overrides the port; `LEXIS_DATA_DIR` overrides where projects are stored
 (default `claude/data/`); `LEXIS_DEBUG=1` echoes the Claude Code subprocess's
 stderr. The SDK spawns its bundled Claude Code runtime, so no separate CLI
@@ -61,6 +69,11 @@ extraction, and versioning use them).
   checkpoint at every turn boundary), and the UI shows the version timeline
   with one-click revert. Reverts are non-destructive: the current state is
   snapshotted first and the revert itself is a new version.
+- **Usage & cost** — each turn's per-model token usage (input, output, cache
+  read/write) and cost from the SDK's `modelUsage` report is accumulated into
+  the project and shown in the UI's Usage panel, broken down by model with a
+  running total. Costs are the API-equivalent numbers the SDK reports — actual
+  spend on an API key, an estimate when running on a subscription.
 - **Custom cover (optional)** — upload a cover any time. Before packaging it's
   written into the workspace as `cover_override.*` and the packager uses it.
   After the EPUB exists, "Repackage" swaps the cover deterministically

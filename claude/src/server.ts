@@ -273,9 +273,11 @@ wss.on('connection', (ws: WebSocket, req) => {
 
 server.listen(PORT, () => {
   console.log(`lexis (claude agent sdk) listening on http://localhost:${PORT}`);
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     console.warn(
-      'warning: ANTHROPIC_API_KEY is not set — the orchestrator will fail to start until it is provided (or another supported credential source is configured).',
+      'note: neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is set. ' +
+        'The orchestrator will still work if this machine is logged in to Claude Code ' +
+        'with a subscription (`claude` then `/login`); otherwise provide one of the two.',
     );
   }
 });

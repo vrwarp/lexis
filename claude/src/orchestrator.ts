@@ -4,6 +4,7 @@ import {
   createSdkMcpServer,
   query,
   tool,
+  type ModelUsage,
   type Query,
   type SDKMessage,
   type SDKUserMessage,
@@ -37,6 +38,12 @@ export class OrchestratorSession {
   private completedThisTurn = false;
   /** tool_use_id of a Task invocation -> subagent name, for attribution. */
   private taskAgents = new Map<string, string>();
+  /**
+   * The last per-model usage snapshot seen from the current SDK run. Result
+   * messages report usage cumulatively within a run, so per-turn deltas
+   * against this snapshot are accumulated into the persisted project totals.
+   */
+  private lastRunUsage: Record<string, ModelUsage> | null = null;
 
   constructor(project: Project) {
     this.project = project;
@@ -235,6 +242,7 @@ export class OrchestratorSession {
   private async run(): Promise<void> {
     const project = this.project;
     project.setStatus('running');
+    this.lastRunUsage = null;
     const stream = query({
       prompt: this.inputStream(),
       options: {
@@ -284,6 +292,51 @@ export class OrchestratorSession {
         project.setStatus(project.meta.outputPath ? 'completed' : 'awaiting_input');
       }
     }
+  }
+
+  /**
+   * Fold a run-cumulative per-model usage snapshot into the persisted project
+   * totals. Returns the cost of the delta (i.e. this turn's cost).
+   */
+  private accumulateUsage(snapshot: Record<string, ModelUsage>): number {
+    const project = this.project;
+    const totals = project.meta.usage ?? { byModel: {}, totalCostUsd: 0 };
+    let turnCostUsd = 0;
+    for (const [model, usage] of Object.entries(snapshot)) {
+      const prev = this.lastRunUsage?.[model];
+      const delta = {
+        inputTokens: Math.max(0, usage.inputTokens - (prev?.inputTokens ?? 0)),
+        outputTokens: Math.max(0, usage.outputTokens - (prev?.outputTokens ?? 0)),
+        cacheReadInputTokens: Math.max(
+          0,
+          usage.cacheReadInputTokens - (prev?.cacheReadInputTokens ?? 0),
+        ),
+        cacheCreationInputTokens: Math.max(
+          0,
+          usage.cacheCreationInputTokens - (prev?.cacheCreationInputTokens ?? 0),
+        ),
+        costUsd: Math.max(0, usage.costUSD - (prev?.costUSD ?? 0)),
+      };
+      const entry = totals.byModel[model] ?? {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        costUsd: 0,
+      };
+      entry.inputTokens += delta.inputTokens;
+      entry.outputTokens += delta.outputTokens;
+      entry.cacheReadInputTokens += delta.cacheReadInputTokens;
+      entry.cacheCreationInputTokens += delta.cacheCreationInputTokens;
+      entry.costUsd += delta.costUsd;
+      totals.byModel[model] = entry;
+      totals.totalCostUsd += delta.costUsd;
+      turnCostUsd += delta.costUsd;
+    }
+    this.lastRunUsage = snapshot;
+    project.meta.usage = totals;
+    project.save();
+    return turnCostUsd;
   }
 
   private agentFor(parentToolUseId: string | null | undefined): string {
@@ -347,8 +400,11 @@ export class OrchestratorSession {
         break;
       }
       case 'result': {
+        const turnCostUsd = this.accumulateUsage(message.modelUsage ?? {});
         project.emit('usage', 'orchestrator', {
-          costUsd: 'total_cost_usd' in message ? message.total_cost_usd : undefined,
+          turnCostUsd,
+          totalCostUsd: project.meta.usage?.totalCostUsd,
+          byModel: project.meta.usage?.byModel as unknown as Record<string, unknown>,
           durationMs: message.duration_ms,
           turns: message.num_turns,
           isError: message.is_error,

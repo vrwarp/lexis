@@ -93,6 +93,7 @@ async function selectProject(id) {
 
   renderStatus();
   renderVersions(detail.versions ?? []);
+  renderUsage(detail.usage);
   renderBoard();
   refreshProjects();
   connectWs();
@@ -170,11 +171,16 @@ function handleEvent(ev) {
       if (ev.data.version) addFeed(ev, 'version', `⎘ version saved — ${ev.data.version.label}`);
       loadVersions();
       break;
-    case 'usage':
-      if (ev.data.costUsd != null) {
-        addFeed(ev, 'usage', `turn done · $${Number(ev.data.costUsd).toFixed(2)} · ${Math.round(ev.data.durationMs / 1000)}s · ${ev.data.turns} turns`);
+    case 'usage': {
+      const turn = ev.data.turnCostUsd ?? ev.data.costUsd;
+      const total = ev.data.totalCostUsd;
+      if (turn != null) {
+        const totalPart = total != null ? ` · project total $${Number(total).toFixed(2)}` : '';
+        addFeed(ev, 'usage', `turn · $${Number(turn).toFixed(2)}${totalPart} · ${Math.round(ev.data.durationMs / 1000)}s`);
       }
+      if (ev.data.byModel) renderUsage({ byModel: ev.data.byModel, totalCostUsd: total });
       break;
+    }
     case 'error':
       addFeed(ev, 'error', ev.data.message);
       break;
@@ -320,6 +326,53 @@ function renderStatus() {
   $('download-btn').classList.toggle('hidden', p.status !== 'completed');
   $('interrupt-btn').classList.toggle('hidden', p.status !== 'running' && p.status !== 'awaiting_review');
   $('repackage-btn').classList.toggle('hidden', !(p.status === 'completed' && p.coverFilename));
+}
+
+/* ---------------- usage ---------------- */
+
+function fmtTokens(n) {
+  if (n == null) return '0';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
+}
+
+function shortModel(model) {
+  // claude-opus-4-6-20250514 -> opus 4.6 ; claude-sonnet-4-5 -> sonnet 4.5
+  const m = model.match(/claude-([a-z]+)-(\d+)-(\d+)/);
+  return m ? `${m[1]} ${m[2]}.${m[3]}` : model;
+}
+
+function renderUsage(usage) {
+  const panel = $('usage-panel');
+  const totalEl = $('usage-total');
+  if (!usage || !usage.byModel || Object.keys(usage.byModel).length === 0) {
+    panel.innerHTML = '<p class="muted usage-empty">No usage yet.</p>';
+    totalEl.textContent = '';
+    return;
+  }
+  totalEl.textContent = usage.totalCostUsd != null ? `$${usage.totalCostUsd.toFixed(2)}` : '';
+  panel.innerHTML = '';
+  const models = Object.entries(usage.byModel).sort((a, b) => b[1].costUsd - a[1].costUsd);
+  for (const [model, u] of models) {
+    const el = document.createElement('div');
+    el.className = 'usage-model';
+    el.innerHTML = `
+      <div class="um-name"><span></span><span class="um-cost">$${u.costUsd.toFixed(2)}</span></div>
+      <div class="um-tokens">
+        <span>in <b>${fmtTokens(u.inputTokens)}</b></span>
+        <span>out <b>${fmtTokens(u.outputTokens)}</b></span>
+        <span>cache r <b>${fmtTokens(u.cacheReadInputTokens)}</b></span>
+        <span>cache w <b>${fmtTokens(u.cacheCreationInputTokens)}</b></span>
+      </div>`;
+    el.querySelector('.um-name span').textContent = shortModel(model);
+    el.title = model;
+    panel.appendChild(el);
+  }
+  const note = document.createElement('p');
+  note.className = 'usage-note';
+  note.textContent = 'API-equivalent cost as reported by the SDK (an estimate when running on a subscription).';
+  panel.appendChild(note);
 }
 
 /* ---------------- versions ---------------- */

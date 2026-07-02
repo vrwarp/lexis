@@ -311,6 +311,25 @@ input:focus, textarea:focus { outline: 1px solid var(--accent); }
 .version-item:hover button { visibility: visible; }
 .version-item:hover { background: var(--bg-inset); }
 
+/* ============ usage ============ */
+.usage-head { border-top: 1px solid var(--border); }
+.usage-total { font-family: var(--font-mono); font-size: 13px; color: var(--accent); font-weight: 600; }
+#usage-panel { padding: 4px 12px 12px; overflow-y: auto; max-height: 40%; flex-shrink: 0; }
+.usage-empty { font-size: 12px; margin: 6px 2px; }
+.usage-model { margin-bottom: 10px; }
+.usage-model .um-name { font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; }
+.usage-model .um-name .um-cost { font-family: var(--font-mono); color: var(--accent); }
+.usage-model .um-tokens {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.usage-model .um-tokens b { color: var(--text); font-weight: 500; }
+.usage-note { font-size: 10px; color: var(--text-dim); margin: 2px 0 0; }
+
 @media (max-width: 1100px) {
   #version-pane { display: none; }
   #pipeline-board { grid-template-columns: repeat(4, 1fr); }
