@@ -117,7 +117,9 @@ input:focus, textarea:focus { outline: 1px solid var(--accent); }
 .empty-card h2 { font-family: var(--font-serif); font-size: 26px; margin: 0; }
 .empty-card p { color: var(--text-dim); line-height: 1.6; margin: 0; }
 
-#project-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 18px 22px 14px; gap: 14px; }
+/* overflow-y:auto (not hidden) so on small screens / tall banners the page
+   scrolls instead of crushing the activity feed into an unusable sliver */
+#project-view { flex: 1; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 18px 22px 14px; gap: 14px; }
 
 #project-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
 #project-title { font-family: var(--font-serif); font-size: 24px; margin: 0 0 6px; }
@@ -152,16 +154,51 @@ input:focus, textarea:focus { outline: 1px solid var(--accent); }
   padding: 9px 10px;
   position: relative;
   min-height: 64px;
+  display: flex;
+  flex-direction: column;
 }
 .phase .ph-name { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim); }
 .phase .ph-state { font-size: 12px; margin-top: 5px; font-weight: 600; color: var(--text-dim); }
+.ph-bar {
+  display: flex;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg-inset);
+}
+.ph-bar .seg-completed { background: var(--green); }
+.ph-bar .seg-started { background: var(--accent); }
+.ph-bar .seg-failed { background: var(--red); }
+.ph-running {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ph-toggle {
+  margin-top: 6px;
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.ph-toggle:hover { color: var(--text); filter: none; }
 .phase.state-started { border-color: var(--accent); }
 .phase.state-started .ph-state { color: var(--accent); }
 .phase.state-completed { border-color: var(--green); }
 .phase.state-completed .ph-state { color: var(--green); }
 .phase.state-failed { border-color: var(--red); }
 .phase.state-failed .ph-state { color: var(--red); }
-.chapter-chips { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+.chapter-chips {
+  display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px;
+  max-height: 116px;
+  overflow-y: auto;
+}
 .chapter-chip {
   font-size: 10px;
   font-family: var(--font-mono);
@@ -185,15 +222,17 @@ input:focus, textarea:focus { outline: 1px solid var(--accent); }
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 42vh;
+  flex-shrink: 0;
 }
+#review-banner .review-body { overflow-y: auto; min-height: 60px; }
+#review-banner textarea { flex-shrink: 0; }
 .review-head { display: flex; align-items: center; gap: 10px; color: var(--purple); }
 #review-summary {
   font-family: var(--font-sans);
   white-space: pre-wrap;
   margin: 0;
   color: var(--text);
-  max-height: 200px;
-  overflow-y: auto;
   background: var(--bg-inset);
   border-radius: 8px;
   padding: 10px 12px;
@@ -208,7 +247,9 @@ input:focus, textarea:focus { outline: 1px solid var(--accent); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 /* ============ workbench ============ */
-#workbench { flex: 1; display: flex; gap: 14px; overflow: hidden; }
+/* min-height guarantees the feed and chat stay usable no matter how tall the
+   board and review banner get; the page scrolls if space runs out */
+#workbench { flex: 1; display: flex; gap: 14px; overflow: hidden; min-height: 320px; }
 
 #feed-pane {
   flex: 1;

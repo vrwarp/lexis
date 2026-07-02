@@ -22,6 +22,7 @@ const state = {
   chapterState: new Map(), // phase -> Map(chapter -> state)
   activeTasks: new Set(), // subagent names currently running
   reviewPending: false,
+  expandedPhases: new Set(), // phases whose chapter chips are expanded
 };
 
 /* ---------------- api helpers ---------------- */
@@ -83,6 +84,7 @@ async function selectProject(id) {
   state.chapterState = new Map();
   state.activeTasks = new Set();
   state.reviewPending = false;
+  state.expandedPhases = new Set();
 
   $('empty-state').classList.add('hidden');
   $('project-view').classList.remove('hidden');
@@ -288,6 +290,10 @@ function renderSpinner() {
 
 /* ---------------- pipeline board ---------------- */
 
+function shortChapter(chapter) {
+  return chapter.replace(/\.x?html?$/i, '').replace(/^index_split_0*/i, '§');
+}
+
 function renderBoard() {
   const board = $('pipeline-board');
   board.innerHTML = '';
@@ -295,21 +301,71 @@ function renderBoard() {
     const st = state.phaseState.get(phase);
     const el = document.createElement('div');
     el.className = 'phase' + (st ? ` state-${st}` : '');
-    const stateText = { started: 'in progress', completed: 'complete', failed: 'failed' }[st] ?? '—';
-    el.innerHTML = `<div class="ph-name">${name}</div><div class="ph-state">${stateText}</div>`;
+    el.innerHTML = `<div class="ph-name">${name}</div>`;
     const chapters = state.chapterState.get(phase);
-    if (chapters?.size) {
+
+    if (!chapters?.size) {
+      const stateText = { started: 'in progress', completed: 'complete', failed: 'failed' }[st] ?? '—';
+      el.insertAdjacentHTML('beforeend', `<div class="ph-state">${stateText}</div>`);
+      board.appendChild(el);
+      continue;
+    }
+
+    // Chapter-scoped phase: compact summary + progress bar, expandable chips.
+    const counts = { completed: 0, started: 0, failed: 0 };
+    for (const s of chapters.values()) if (s in counts) counts[s]++;
+    const total = chapters.size;
+
+    const stateLine = document.createElement('div');
+    stateLine.className = 'ph-state';
+    const bits = [`${counts.completed}/${total} done`];
+    if (counts.started) bits.push(`${counts.started} running`);
+    if (counts.failed) bits.push(`${counts.failed} failed`);
+    stateLine.textContent = bits.join(' · ');
+    el.appendChild(stateLine);
+
+    const bar = document.createElement('div');
+    bar.className = 'ph-bar';
+    bar.innerHTML =
+      `<span class="seg-completed" style="width:${(counts.completed / total) * 100}%"></span>` +
+      `<span class="seg-started" style="width:${(counts.started / total) * 100}%"></span>` +
+      `<span class="seg-failed" style="width:${(counts.failed / total) * 100}%"></span>`;
+    el.appendChild(bar);
+
+    const expanded = state.expandedPhases.has(phase);
+
+    // When collapsed, still surface what's being worked on right now.
+    const running = [...chapters].filter(([, s]) => s === 'started').map(([c]) => c);
+    if (running.length && !expanded) {
+      const hint = document.createElement('div');
+      hint.className = 'ph-running';
+      hint.textContent = '◐ ' + running.map(shortChapter).join(', ');
+      hint.title = running.join(', ');
+      el.appendChild(hint);
+    }
+
+    if (expanded) {
       const wrap = document.createElement('div');
       wrap.className = 'chapter-chips';
       for (const [chapter, cst] of chapters) {
         const chip = document.createElement('span');
         chip.className = `chapter-chip state-${cst}`;
-        chip.textContent = chapter.replace(/\.x?html?$/i, '');
+        chip.textContent = shortChapter(chapter);
         chip.title = `${chapter}: ${cst}`;
         wrap.appendChild(chip);
       }
       el.appendChild(wrap);
     }
+
+    const toggle = document.createElement('button');
+    toggle.className = 'ph-toggle';
+    toggle.textContent = expanded ? '▴ collapse' : `▾ ${total} chapters`;
+    toggle.addEventListener('click', () => {
+      if (expanded) state.expandedPhases.delete(phase);
+      else state.expandedPhases.add(phase);
+      renderBoard();
+    });
+    el.appendChild(toggle);
     board.appendChild(el);
   }
 }
