@@ -69,11 +69,14 @@ extraction, and versioning use them).
   checkpoint at every turn boundary), and the UI shows the version timeline
   with one-click revert. Reverts are non-destructive: the current state is
   snapshotted first and the revert itself is a new version.
-- **Usage & cost** — each turn's per-model token usage (input, output, cache
-  read/write) and cost from the SDK's `modelUsage` report is accumulated into
-  the project and shown in the UI's Usage panel, broken down by model with a
-  running total. Costs are the API-equivalent numbers the SDK reports — actual
-  spend on an API key, an estimate when running on a subscription.
+- **Usage & cost** — per-model token usage (input, output, cache read/write)
+  and cost are shown in the UI's Usage panel with a running project total.
+  Token counts update live during a run (accumulated from each assistant
+  message's API usage, subagents included); the SDK only reports `modelUsage`
+  with `costUSD` on `result` messages at turn boundaries, so cost figures
+  update when a turn completes and are reconciled against that authoritative
+  report. Costs are the API-equivalent numbers the SDK computes — actual spend
+  on an API key, an estimate when running on a subscription.
 - **Custom cover (optional)** — upload a cover any time. Before packaging it's
   written into the workspace as `cover_override.*` and the packager uses it.
   After the EPUB exists, "Repackage" swaps the cover deterministically
