@@ -22,6 +22,7 @@ const state = {
   chapterState: new Map(), // phase -> Map(chapter -> state)
   activeTasks: new Set(), // subagent names currently running
   reviewPending: false,
+  expandedPhases: new Set(), // phases whose chapter chips are expanded
 };
 
 /* ---------------- api helpers ---------------- */
@@ -83,6 +84,7 @@ async function selectProject(id) {
   state.chapterState = new Map();
   state.activeTasks = new Set();
   state.reviewPending = false;
+  state.expandedPhases = new Set();
 
   $('empty-state').classList.add('hidden');
   $('project-view').classList.remove('hidden');
@@ -95,6 +97,8 @@ async function selectProject(id) {
   renderVersions(detail.versions ?? []);
   renderUsage(detail.usage);
   renderBoard();
+  closeAsset();
+  if (!$('tab-files').classList.contains('hidden')) loadFiles();
   refreshProjects();
   connectWs();
 }
@@ -170,6 +174,8 @@ function handleEvent(ev) {
     case 'version':
       if (ev.data.version) addFeed(ev, 'version', `⎘ version saved — ${ev.data.version.label}`);
       loadVersions();
+      // The workspace changed; keep the asset browser fresh if it's showing.
+      if (!$('tab-files').classList.contains('hidden')) loadFiles();
       break;
     case 'usage': {
       const turn = ev.data.turnCostUsd ?? ev.data.costUsd;
@@ -288,6 +294,10 @@ function renderSpinner() {
 
 /* ---------------- pipeline board ---------------- */
 
+function shortChapter(chapter) {
+  return chapter.replace(/\.x?html?$/i, '').replace(/^index_split_0*/i, '§');
+}
+
 function renderBoard() {
   const board = $('pipeline-board');
   board.innerHTML = '';
@@ -295,21 +305,71 @@ function renderBoard() {
     const st = state.phaseState.get(phase);
     const el = document.createElement('div');
     el.className = 'phase' + (st ? ` state-${st}` : '');
-    const stateText = { started: 'in progress', completed: 'complete', failed: 'failed' }[st] ?? '—';
-    el.innerHTML = `<div class="ph-name">${name}</div><div class="ph-state">${stateText}</div>`;
+    el.innerHTML = `<div class="ph-name">${name}</div>`;
     const chapters = state.chapterState.get(phase);
-    if (chapters?.size) {
+
+    if (!chapters?.size) {
+      const stateText = { started: 'in progress', completed: 'complete', failed: 'failed' }[st] ?? '—';
+      el.insertAdjacentHTML('beforeend', `<div class="ph-state">${stateText}</div>`);
+      board.appendChild(el);
+      continue;
+    }
+
+    // Chapter-scoped phase: compact summary + progress bar, expandable chips.
+    const counts = { completed: 0, started: 0, failed: 0 };
+    for (const s of chapters.values()) if (s in counts) counts[s]++;
+    const total = chapters.size;
+
+    const stateLine = document.createElement('div');
+    stateLine.className = 'ph-state';
+    const bits = [`${counts.completed}/${total} done`];
+    if (counts.started) bits.push(`${counts.started} running`);
+    if (counts.failed) bits.push(`${counts.failed} failed`);
+    stateLine.textContent = bits.join(' · ');
+    el.appendChild(stateLine);
+
+    const bar = document.createElement('div');
+    bar.className = 'ph-bar';
+    bar.innerHTML =
+      `<span class="seg-completed" style="width:${(counts.completed / total) * 100}%"></span>` +
+      `<span class="seg-started" style="width:${(counts.started / total) * 100}%"></span>` +
+      `<span class="seg-failed" style="width:${(counts.failed / total) * 100}%"></span>`;
+    el.appendChild(bar);
+
+    const expanded = state.expandedPhases.has(phase);
+
+    // When collapsed, still surface what's being worked on right now.
+    const running = [...chapters].filter(([, s]) => s === 'started').map(([c]) => c);
+    if (running.length && !expanded) {
+      const hint = document.createElement('div');
+      hint.className = 'ph-running';
+      hint.textContent = '◐ ' + running.map(shortChapter).join(', ');
+      hint.title = running.join(', ');
+      el.appendChild(hint);
+    }
+
+    if (expanded) {
       const wrap = document.createElement('div');
       wrap.className = 'chapter-chips';
       for (const [chapter, cst] of chapters) {
         const chip = document.createElement('span');
         chip.className = `chapter-chip state-${cst}`;
-        chip.textContent = chapter.replace(/\.x?html?$/i, '');
+        chip.textContent = shortChapter(chapter);
         chip.title = `${chapter}: ${cst}`;
         wrap.appendChild(chip);
       }
       el.appendChild(wrap);
     }
+
+    const toggle = document.createElement('button');
+    toggle.className = 'ph-toggle';
+    toggle.textContent = expanded ? '▴ collapse' : `▾ ${total} chapters`;
+    toggle.addEventListener('click', () => {
+      if (expanded) state.expandedPhases.delete(phase);
+      else state.expandedPhases.add(phase);
+      renderBoard();
+    });
+    el.appendChild(toggle);
     board.appendChild(el);
   }
 }
@@ -374,6 +434,208 @@ function renderUsage(usage) {
   note.textContent = 'API-equivalent cost as reported by the SDK (an estimate when running on a subscription).';
   panel.appendChild(note);
 }
+
+/* ---------------- files & asset review ---------------- */
+
+const asset = {
+  path: null, // currently open file
+  kind: null,
+  reading: false, // reading view (rendered html) vs source
+  excerpt: '',
+};
+
+function fmtSize(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + ' MB';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + ' kB';
+  return n + ' B';
+}
+
+async function loadFiles() {
+  if (!state.current) return;
+  const tree = $('file-tree');
+  let files;
+  try {
+    files = await api(`/api/projects/${state.current.id}/files`);
+  } catch (e) {
+    tree.innerHTML = '<p class="muted usage-empty">Could not load files.</p>';
+    return;
+  }
+  if (!files.length) {
+    tree.innerHTML = '<p class="muted usage-empty">No files yet.</p>';
+    return;
+  }
+  // Group by top-level directory, in pipeline order.
+  const groups = new Map();
+  for (const f of files) {
+    const slash = f.path.indexOf('/');
+    const group = slash === -1 ? '(project root)' : f.path.slice(0, slash);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(f);
+  }
+  const ORDER = ['(project root)', 'original', 'notes', 'draft', 'critique', 'final'];
+  const sorted = [...groups.entries()].sort(
+    (a, b) =>
+      (ORDER.indexOf(a[0]) + 1 || 99) - (ORDER.indexOf(b[0]) + 1 || 99) ||
+      a[0].localeCompare(b[0]),
+  );
+  tree.innerHTML = '';
+  for (const [group, groupFiles] of sorted) {
+    const details = document.createElement('details');
+    details.open = group !== 'original' && group !== '(project root)';
+    const summary = document.createElement('summary');
+    summary.innerHTML = `${group} <span class="count">${groupFiles.length}</span>`;
+    details.appendChild(summary);
+    for (const f of groupFiles) {
+      const row = document.createElement('div');
+      row.className = 'file-row';
+      const name = document.createElement('span');
+      name.className = 'f-name';
+      name.textContent = f.path.slice(group === '(project root)' ? 0 : group.length + 1);
+      name.title = f.path;
+      const size = document.createElement('span');
+      size.className = 'f-size';
+      size.textContent = fmtSize(f.size);
+      row.append(name, size);
+      row.addEventListener('click', () => openAsset(f.path, f.kind));
+      details.appendChild(row);
+    }
+    tree.appendChild(details);
+  }
+}
+
+async function openAsset(path, kind) {
+  asset.path = path;
+  asset.kind = kind;
+  asset.excerpt = '';
+  asset.reading = kind === 'text' && /\.x?html?$/i.test(path);
+  $('asset-path').textContent = path;
+  $('asset-quote').classList.add('hidden');
+  $('asset-comment').value = '';
+  $('asset-modal').classList.remove('hidden');
+  await renderAsset();
+}
+
+async function renderAsset() {
+  const container = $('asset-content');
+  const toggle = $('asset-view-toggle');
+  const isHtml = /\.x?html?$/i.test(asset.path ?? '');
+  toggle.classList.toggle('hidden', !(asset.kind === 'text' && isHtml));
+  toggle.textContent = asset.reading ? '</> source view' : '📖 reading view';
+  container.classList.toggle('reading', asset.reading && isHtml);
+  container.innerHTML = '<span class="muted">Loading…</span>';
+  const projectId = state.current.id;
+  try {
+    if (asset.kind === 'image') {
+      container.classList.remove('reading');
+      container.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = `/api/projects/${projectId}/files/raw?path=${encodeURIComponent(asset.path)}&t=${Date.now()}`;
+      container.appendChild(img);
+      return;
+    }
+    if (asset.kind === 'binary') {
+      container.classList.remove('reading');
+      container.innerHTML = '';
+      const a = document.createElement('a');
+      a.href = `/api/projects/${projectId}/files/raw?path=${encodeURIComponent(asset.path)}`;
+      a.textContent = `⤓ download ${asset.path}`;
+      a.style.color = 'var(--accent)';
+      container.appendChild(a);
+      return;
+    }
+    const data = await api(
+      `/api/projects/${projectId}/files/content?path=${encodeURIComponent(asset.path)}`,
+    );
+    let text = data.content;
+    if (/\.json$/i.test(asset.path)) {
+      try { text = JSON.stringify(JSON.parse(text), null, 2); } catch { /* show raw */ }
+    }
+    if (asset.reading && isHtml) {
+      container.innerHTML = '';
+      const frame = document.createElement('iframe');
+      // allow-same-origin (and no allow-scripts) so we can read text selections
+      // for quoting while scripts inside the document stay disabled.
+      frame.setAttribute('sandbox', 'allow-same-origin');
+      frame.srcdoc = text;
+      frame.addEventListener('load', () => {
+        frame.contentDocument?.addEventListener('mouseup', () => {
+          captureSelection(frame.contentDocument.getSelection());
+        });
+      });
+      container.appendChild(frame);
+    } else {
+      container.textContent = text + (data.truncated ? '\n\n… (truncated)' : '');
+    }
+  } catch (e) {
+    container.textContent = 'Could not load file: ' + e.message;
+  }
+}
+
+function captureSelection(selection) {
+  const text = (selection?.toString() ?? '').trim();
+  if (!text) return;
+  asset.excerpt = text.slice(0, 1500);
+  $('asset-quote-text').textContent = asset.excerpt;
+  $('asset-quote').classList.remove('hidden');
+}
+
+function closeAsset() {
+  $('asset-modal').classList.add('hidden');
+  asset.path = null;
+}
+
+$('asset-content').addEventListener('mouseup', () => captureSelection(window.getSelection()));
+$('quote-clear').addEventListener('click', () => {
+  asset.excerpt = '';
+  $('asset-quote').classList.add('hidden');
+});
+$('asset-close').addEventListener('click', closeAsset);
+$('asset-refresh').addEventListener('click', () => asset.path && renderAsset());
+$('asset-view-toggle').addEventListener('click', () => {
+  asset.reading = !asset.reading;
+  renderAsset();
+});
+$('asset-modal').addEventListener('click', (e) => {
+  if (e.target === $('asset-modal')) closeAsset();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && asset.path) closeAsset();
+});
+
+$('asset-comment-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const comment = $('asset-comment').value.trim();
+  if (!comment || !asset.path || !state.current) return;
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    await post(`/api/projects/${state.current.id}/files/comment`, {
+      path: asset.path,
+      comment,
+      excerpt: asset.excerpt || undefined,
+    });
+    $('asset-comment').value = '';
+    asset.excerpt = '';
+    $('asset-quote').classList.add('hidden');
+    btn.textContent = 'Sent ✓';
+    setTimeout(() => { btn.textContent = 'Send to orchestrator'; }, 1600);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* tab switching */
+for (const tab of document.querySelectorAll('.tab-bar .tab')) {
+  tab.addEventListener('click', () => {
+    for (const t of document.querySelectorAll('.tab-bar .tab')) t.classList.toggle('active', t === tab);
+    $('tab-versions').classList.toggle('hidden', tab.dataset.tab !== 'versions');
+    $('tab-files').classList.toggle('hidden', tab.dataset.tab !== 'files');
+    if (tab.dataset.tab === 'files') loadFiles();
+  });
+}
+$('files-refresh').addEventListener('click', loadFiles);
 
 /* ---------------- versions ---------------- */
 
