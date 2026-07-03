@@ -110,13 +110,26 @@
             </form>
           </div>
 
-          <!-- versions -->
+          <!-- versions / files -->
           <div id="version-pane">
-            <div class="pane-head">
-              <h3>Versions</h3>
-              <button id="snapshot-btn" class="ghost small" title="Snapshot the workspace now">＋ snapshot</button>
+            <div class="tab-bar" role="tablist">
+              <button class="tab active" data-tab="versions">Versions</button>
+              <button class="tab" data-tab="files">Files</button>
             </div>
-            <ol id="version-list"></ol>
+            <div id="tab-versions" class="tab-body">
+              <div class="pane-head">
+                <h3>Versions</h3>
+                <button id="snapshot-btn" class="ghost small" title="Snapshot the workspace now">＋ snapshot</button>
+              </div>
+              <ol id="version-list"></ol>
+            </div>
+            <div id="tab-files" class="tab-body hidden">
+              <div class="pane-head">
+                <h3>Generated assets</h3>
+                <button id="files-refresh" class="ghost small" title="Reload the file list">↻ refresh</button>
+              </div>
+              <div id="file-tree"><p class="muted usage-empty">No files yet.</p></div>
+            </div>
             <div class="pane-head usage-head">
               <h3>Usage</h3>
               <span id="usage-total" class="usage-total"></span>
@@ -127,6 +140,31 @@
       </section>
     </main>
   </div>
+
+  <!-- asset viewer & review modal -->
+  <div id="asset-modal" class="hidden">
+    <div class="modal-card">
+      <header class="modal-head">
+        <span id="asset-path" class="asset-path"></span>
+        <div class="row">
+          <button id="asset-view-toggle" class="ghost small hidden">📖 reading view</button>
+          <button id="asset-refresh" class="ghost small" title="Reload">↻</button>
+          <button id="asset-close" class="ghost small" title="Close">✕</button>
+        </div>
+      </header>
+      <div id="asset-content" tabindex="0"></div>
+      <div id="asset-quote" class="hidden">
+        <blockquote id="asset-quote-text"></blockquote>
+        <button id="quote-clear" class="ghost small" title="Remove quoted passage">✕</button>
+      </div>
+      <form id="asset-comment-form">
+        <textarea id="asset-comment" rows="2"
+          placeholder="Comment on this file — select text above to quote it. Sent straight to the orchestrator."></textarea>
+        <button type="submit" class="primary">Send to orchestrator</button>
+      </form>
+    </div>
+  </div>
+
   <script src="/app.js"></script>
 </body>
 </html>

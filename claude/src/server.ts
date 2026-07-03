@@ -187,6 +187,125 @@ app.post(
   }),
 );
 
+// ---------- assets (inspection & review) ----------
+
+/** Resolve a user-supplied relative path safely inside the workspace. */
+function resolveWorkspacePath(project: Project, rel: string): string | null {
+  const abs = path.resolve(project.workspace, rel);
+  if (abs !== project.workspace && !abs.startsWith(project.workspace + path.sep)) return null;
+  if (path.relative(project.workspace, abs).split(path.sep).includes('.git')) return null;
+  return abs;
+}
+
+const TEXT_EXTENSIONS = new Set([
+  '.xhtml', '.html', '.htm', '.txt', '.md', '.json', '.css', '.opf', '.ncx', '.xml', '.svg',
+]);
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']);
+
+app.get(
+  '/api/projects/:id/files',
+  wrap(async (req, res) => {
+    const project = requireProject(req, res);
+    if (!project) return;
+    const files: { path: string; size: number; mtime: string; kind: string }[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === '.git') continue;
+        const abs = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(abs);
+        } else {
+          const stat = fs.statSync(abs);
+          const ext = path.extname(entry.name).toLowerCase();
+          files.push({
+            path: path.relative(project.workspace, abs),
+            size: stat.size,
+            mtime: stat.mtime.toISOString(),
+            kind: IMAGE_EXTENSIONS.has(ext) ? 'image' : TEXT_EXTENSIONS.has(ext) ? 'text' : 'binary',
+          });
+        }
+      }
+    };
+    walk(project.workspace);
+    files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+    res.json(files);
+  }),
+);
+
+app.get(
+  '/api/projects/:id/files/content',
+  wrap(async (req, res) => {
+    const project = requireProject(req, res);
+    if (!project) return;
+    const abs = resolveWorkspacePath(project, String(req.query.path ?? ''));
+    if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      res.status(404).json({ error: 'file not found' });
+      return;
+    }
+    const size = fs.statSync(abs).size;
+    const CAP = 2 * 1024 * 1024;
+    const fd = fs.openSync(abs, 'r');
+    try {
+      const buffer = Buffer.alloc(Math.min(size, CAP));
+      fs.readSync(fd, buffer, 0, buffer.length, 0);
+      if (buffer.includes(0)) {
+        res.status(415).json({ error: 'binary file — use the raw endpoint' });
+        return;
+      }
+      res.json({ path: req.query.path, content: buffer.toString('utf8'), truncated: size > CAP, size });
+    } finally {
+      fs.closeSync(fd);
+    }
+  }),
+);
+
+app.get(
+  '/api/projects/:id/files/raw',
+  wrap(async (req, res) => {
+    const project = requireProject(req, res);
+    if (!project) return;
+    const abs = resolveWorkspacePath(project, String(req.query.path ?? ''));
+    if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      res.status(404).json({ error: 'file not found' });
+      return;
+    }
+    res.sendFile(abs);
+  }),
+);
+
+app.post(
+  '/api/projects/:id/files/comment',
+  wrap(async (req, res) => {
+    const project = requireProject(req, res);
+    if (!project) return;
+    const { path: filePath, comment, excerpt } = req.body as {
+      path?: string;
+      comment?: string;
+      excerpt?: string;
+    };
+    if (!filePath || !comment?.trim()) {
+      res.status(400).json({ error: 'path and comment are required' });
+      return;
+    }
+    if (!resolveWorkspacePath(project, filePath)) {
+      res.status(400).json({ error: 'invalid path' });
+      return;
+    }
+    const quoted = excerpt?.trim()
+      ? `\n\nRegarding this passage:\n${excerpt
+          .trim()
+          .slice(0, 1500)
+          .split('\n')
+          .map((line) => `> ${line}`)
+          .join('\n')}`
+      : '';
+    sessionFor(project).send(
+      `[User comment on asset \`${filePath}\`]${quoted}\n\n${comment.trim()}`,
+    );
+    res.json({ ok: true });
+  }),
+);
+
 // ---------- cover & packaging ----------
 
 app.post(
