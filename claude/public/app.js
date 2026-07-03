@@ -431,7 +431,7 @@ function renderUsage(usage) {
   }
   const note = document.createElement('p');
   note.className = 'usage-note';
-  note.textContent = 'API-equivalent cost as reported by the SDK (an estimate when running on a subscription).';
+  note.textContent = 'Tokens update live during a run; cost figures are API-equivalent (an estimate on a subscription) and update at each turn boundary.';
   panel.appendChild(note);
 }
 

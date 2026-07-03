@@ -6,6 +6,7 @@ import {
   tool,
   type ModelUsage,
   type Query,
+  type SDKAssistantMessage,
   type SDKMessage,
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -13,7 +14,16 @@ import { z } from 'zod';
 import { loadAgents } from './agents.js';
 import type { Project } from './projects.js';
 import { orchestratorPrompt } from './prompt.js';
+import type { ModelUsageTotals, UsageTotals } from './types.js';
 import { listVersions, revertToVersion, saveVersion } from './versioning.js';
+
+const emptyModelTotals = (): ModelUsageTotals => ({
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadInputTokens: 0,
+  cacheCreationInputTokens: 0,
+  costUsd: 0,
+});
 
 const AGENTS = loadAgents();
 
@@ -44,6 +54,18 @@ export class OrchestratorSession {
    * against this snapshot are accumulated into the persisted project totals.
    */
   private lastRunUsage: Record<string, ModelUsage> | null = null;
+  /**
+   * Live token overlay for the current turn. Cost and modelUsage are only
+   * reported on `result` messages, i.e. at turn boundaries — during a long
+   * turn (a whole extraction pass can be one turn) the panel would otherwise
+   * sit at zero for hours. Tokens are counted from each assistant message's
+   * API usage as they stream by, then discarded when the authoritative
+   * turn-boundary numbers are folded into the persisted totals.
+   */
+  private liveUsage = new Map<string, ModelUsageTotals>();
+  /** API message ids already counted (assistant messages can repeat an id). */
+  private seenUsageIds = new Set<string>();
+  private lastLiveEmit = 0;
 
   constructor(project: Project) {
     this.project = project;
@@ -243,6 +265,8 @@ export class OrchestratorSession {
     const project = this.project;
     project.setStatus('running');
     this.lastRunUsage = null;
+    this.liveUsage.clear();
+    this.seenUsageIds.clear();
     const stream = query({
       prompt: this.inputStream(),
       options: {
@@ -292,6 +316,60 @@ export class OrchestratorSession {
         project.setStatus(project.meta.outputPath ? 'completed' : 'awaiting_input');
       }
     }
+  }
+
+  /**
+   * Count tokens from an assistant message's API usage into the live overlay
+   * and push a throttled panel update. Applies to subagent messages too
+   * (forwardSubagentText delivers them), so the panel moves while a subagent
+   * grinds through a chapter.
+   */
+  private trackLiveUsage(message: SDKAssistantMessage): void {
+    const api = message.message;
+    const usage = api?.usage;
+    const model = api?.model;
+    if (!usage || !model) return;
+    if (api.id) {
+      if (this.seenUsageIds.has(api.id)) return; // multi-block messages repeat the id
+      this.seenUsageIds.add(api.id);
+      if (this.seenUsageIds.size > 1000) {
+        const oldest = this.seenUsageIds.values().next().value;
+        if (oldest) this.seenUsageIds.delete(oldest);
+      }
+    }
+    const entry = this.liveUsage.get(model) ?? emptyModelTotals();
+    entry.inputTokens += usage.input_tokens ?? 0;
+    entry.outputTokens += usage.output_tokens ?? 0;
+    entry.cacheReadInputTokens += usage.cache_read_input_tokens ?? 0;
+    entry.cacheCreationInputTokens += usage.cache_creation_input_tokens ?? 0;
+    this.liveUsage.set(model, entry);
+    const now = Date.now();
+    if (now - this.lastLiveEmit >= 10_000) {
+      this.lastLiveEmit = now;
+      const combined = this.combinedUsage();
+      this.project.emit('usage', 'orchestrator', {
+        byModel: combined.byModel as unknown as Record<string, unknown>,
+        totalCostUsd: combined.totalCostUsd,
+        live: true,
+      });
+    }
+  }
+
+  /** Persisted totals plus the live in-turn token overlay (cost lags a turn). */
+  private combinedUsage(): UsageTotals {
+    const base = this.project.meta.usage;
+    const totals: UsageTotals = base
+      ? (JSON.parse(JSON.stringify(base)) as UsageTotals)
+      : { byModel: {}, totalCostUsd: 0 };
+    for (const [model, live] of this.liveUsage) {
+      const entry = totals.byModel[model] ?? emptyModelTotals();
+      entry.inputTokens += live.inputTokens;
+      entry.outputTokens += live.outputTokens;
+      entry.cacheReadInputTokens += live.cacheReadInputTokens;
+      entry.cacheCreationInputTokens += live.cacheCreationInputTokens;
+      totals.byModel[model] = entry;
+    }
+    return totals;
   }
 
   /**
@@ -359,6 +437,7 @@ export class OrchestratorSession {
         break;
       }
       case 'assistant': {
+        this.trackLiveUsage(message);
         const agent = this.agentFor(message.parent_tool_use_id);
         for (const block of message.message.content) {
           if (block.type === 'text' && block.text.trim()) {
@@ -400,6 +479,8 @@ export class OrchestratorSession {
         break;
       }
       case 'result': {
+        // The turn-boundary report is authoritative — drop the live overlay.
+        this.liveUsage.clear();
         const turnCostUsd = this.accumulateUsage(message.modelUsage ?? {});
         project.emit('usage', 'orchestrator', {
           turnCostUsd,
