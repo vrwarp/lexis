@@ -28,7 +28,7 @@ from smolagents.monitoring import LogLevel, Timing
 from .agent_defs import build_subagents
 from .config import ModelFactory
 from .diagnostics import describe_error, log_line
-from .fs_tools import build_toolset
+from .fs_tools import build_toolset, diff_written, files_written_report, snapshot_workspace
 from .harness_tools import ReviewGate, build_harness_tools
 from .projects import Project
 from .prompt import orchestrator_instructions
@@ -117,7 +117,8 @@ class OrchestratorSession:
         session = self
 
         class EventedSubagent(ToolCallingAgent):
-            """Managed agent that emits task_start/task_end around each invocation."""
+            """Managed agent that emits task_start/task_end around each invocation
+            and appends a harness-computed report of the files it actually wrote."""
 
             def __call__(self, task: str, **kwargs):
                 project.emit(
@@ -125,10 +126,33 @@ class OrchestratorSession:
                     "orchestrator",
                     {"agent": self.name, "description": str(task)[:300]},
                 )
+                before = snapshot_workspace(project.workspace)
+
+                def run_once():
+                    return super(EventedSubagent, self).__call__(task, **kwargs)
+
                 try:
-                    result = super().__call__(task, **kwargs)
-                    session._note_subagent_outcome(self.name, True, "")
-                    return result
+                    result = run_once()
+                    text = (result if isinstance(result, str) else str(result)).strip()
+                    written = diff_written(before, snapshot_workspace(project.workspace))
+                    # No files touched AND no status report is almost always a
+                    # transient model garble (a tool call emitted as plain text
+                    # never executes). Retry once before giving up.
+                    if not written and not text:
+                        project.emit("task_retry", "orchestrator", {"agent": self.name})
+                        result = run_once()
+                        text = (result if isinstance(result, str) else str(result)).strip()
+                        written = diff_written(before, snapshot_workspace(project.workspace))
+                    ok = bool(written) or bool(text)
+                    detail = (
+                        ""
+                        if ok
+                        else f"{self.name}: produced no output files and no status report "
+                        "(the model likely garbled its tool calls)"
+                    )
+                    session._note_subagent_outcome(self.name, ok, detail)
+                    body = text or "(the subagent returned no status report)"
+                    return f"{body}\n\n{files_written_report(written, project.workspace)}"
                 except Exception as exc:
                     detail = f"{self.name}: {describe_error(exc)}"
                     session._note_subagent_outcome(self.name, False, detail)

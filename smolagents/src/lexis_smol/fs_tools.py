@@ -268,3 +268,65 @@ def build_toolset(workspace: Path | str, names: list[str]) -> list[Tool]:
     if unknown:
         raise ValueError(f"Unknown tool(s) in agent definition: {unknown}")
     return [TOOL_CLASSES[n](workspace) for n in names]
+
+
+# ---------- workspace change tracking ----------
+#
+# The orchestrator must know exactly which files a subagent produced, and it
+# cannot trust an LLM's self-reported status (a free reasoning model routinely
+# claims a write it never made, or garbles its tool call so nothing executes).
+# So we compute the truth in code: snapshot the workspace before and after each
+# subagent run and diff it (docs/LESSONS.md #4).
+
+
+def snapshot_workspace(workspace: Path | str) -> dict[str, tuple[float, int]]:
+    """Snapshot every workspace file (excluding .git) as relpath -> (mtime, size)."""
+    root = Path(workspace).resolve()
+    out: dict[str, tuple[float, int]] = {}
+    if not root.exists():
+        return out
+    for p in root.rglob("*"):
+        try:
+            rel = p.relative_to(root)
+            if not p.is_file() or ".git" in rel.parts:
+                continue
+            st = p.stat()
+            out[rel.as_posix()] = (st.st_mtime, st.st_size)
+        except OSError:
+            continue
+    return out
+
+
+def diff_written(before: dict[str, tuple[float, int]], after: dict[str, tuple[float, int]]) -> list[str]:
+    """Paths created or modified between two snapshots (new, or changed mtime/size), sorted."""
+    return sorted(rel for rel, stamp in after.items() if before.get(rel) != stamp)
+
+
+def human_size(num: int) -> str:
+    if num < 1024:
+        return f"{num} B"
+    if num < 1024 * 1024:
+        return f"{num / 1024:.1f} KB"
+    return f"{num / 1024 / 1024:.1f} MB"
+
+
+def files_written_report(written: list[str], workspace: Path | str) -> str:
+    """A deterministic, harness-computed statement of what a subagent actually
+    wrote — appended to every subagent report so the orchestrator relies on
+    ground truth, not the model's (often garbled or absent) self-report."""
+    if not written:
+        return (
+            "Files written this run: NONE. The subagent wrote no files. If it was supposed to produce "
+            "output, re-dispatch it once with clearer inputs, or skip this item and note it — do NOT try "
+            "alternate output-path spellings; each agent writes to a fixed path defined by its role."
+        )
+    workspace = Path(workspace)
+    shown = []
+    for rel in written[:15]:
+        try:
+            size = (workspace / rel).stat().st_size
+        except OSError:
+            size = 0
+        shown.append(f"{rel} ({human_size(size)})")
+    extra = f", +{len(written) - 15} more" if len(written) > 15 else ""
+    return "Files written this run: " + ", ".join(shown) + extra

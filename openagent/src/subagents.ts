@@ -9,8 +9,25 @@ import { generateText, stepCountIs, tool, type StepResult, type Tool, type ToolS
 import { z } from 'zod';
 import type { ModelFactory } from './config.js';
 import { describeError } from './diagnostics.js';
-import { buildFileTools } from './fs-tools.js';
+import { buildFileTools, diffWritten, humanSize, snapshotWorkspace, type FileStamp } from './fs-tools.js';
 import type { PromptRegistry } from './prompts.js';
+
+/** A deterministic, harness-computed statement of what the subagent actually
+ * wrote — appended to every subagent result so the orchestrator relies on
+ * ground truth, not the model's (often garbled or absent) self-report. */
+function filesWrittenReport(written: string[], after: Map<string, FileStamp>): string {
+  if (written.length === 0) {
+    return (
+      'Files written this run: NONE. The subagent wrote no files. If it was supposed to produce output, ' +
+      're-dispatch it once with clearer inputs, or skip this item and note it — do NOT try alternate ' +
+      'output-path spellings; each agent writes to a fixed path defined by its role.'
+    );
+  }
+  const MAX = 15;
+  const shown = written.slice(0, MAX).map(p => `${p} (${humanSize(after.get(p)?.size ?? 0)})`);
+  const extra = written.length > MAX ? `, +${written.length - MAX} more` : '';
+  return `Files written this run: ${shown.join(', ')}${extra}`;
+}
 
 export interface SessionHooks {
   emit: (type: string, agent: string, data: Record<string, unknown>) => void;
@@ -46,9 +63,10 @@ export function buildSubagentTools(
           agent: agent.name,
           description: String(task).slice(0, 300),
         });
-        try {
+        const before = snapshotWorkspace(workspace);
+        const runOnce = () => {
           const { model, modelId, settings } = factory.resolve(agent.tier, agent.name);
-          const result = await generateText({
+          return generateText({
             model,
             system: registry.finish(agent.name),
             messages: [{ role: 'user', content: task + TASK_REMINDER }],
@@ -62,9 +80,31 @@ export function buildSubagentTools(
             },
             ...settings,
           });
-          hooks.reportOutcome(agent.name, true, '');
-          const text = result.text?.trim();
-          return text || '(subagent finished without a status report — verify its output files on disk)';
+        };
+        try {
+          let result = await runOnce();
+          let text = result.text?.trim() ?? '';
+          let after = snapshotWorkspace(workspace);
+          let written = diffWritten(before, after);
+          // A run that touched no files AND returned no status text is almost
+          // always a transient model garble (e.g. a free reasoning model emits a
+          // tool call as plain text so it never executes). Retry once before
+          // giving up, so one bad roll of the dice doesn't strand the pipeline.
+          if (written.length === 0 && !text) {
+            hooks.emit('task_retry', 'orchestrator', { agent: agent.name });
+            result = await runOnce();
+            text = result.text?.trim() ?? '';
+            after = snapshotWorkspace(workspace);
+            written = diffWritten(before, after);
+          }
+          const ok = written.length > 0 || text.length > 0;
+          hooks.reportOutcome(
+            agent.name,
+            ok,
+            ok ? '' : `${agent.name}: produced no output files and no status report (the model likely garbled its tool calls)`,
+          );
+          const body = text || '(the subagent returned no status text)';
+          return `${body}\n\n${filesWrittenReport(written, after)}`;
         } catch (error) {
           const message = describeError(error);
           hooks.reportOutcome(agent.name, false, `${agent.name}: ${message}`);
