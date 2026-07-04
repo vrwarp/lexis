@@ -25,6 +25,32 @@ const emptyModelTotals = (): ModelUsageTotals => ({
   costUsd: 0,
 });
 
+/**
+ * Standard API pricing per MTok, used ONLY to estimate the cost of the live
+ * in-turn token overlay. The SDK's authoritative costUSD (reported on result
+ * messages at turn boundaries) replaces these estimates whenever it arrives —
+ * which matters because the whole pipeline can be one long turn (the review
+ * gate blocks inside it), so without an estimate the cost would read $0.00
+ * until the book is finished.
+ */
+const MODEL_PRICES: { match: RegExp; inTok: number; outTok: number; cacheRead: number; cacheWrite: number }[] = [
+  { match: /opus/i, inTok: 5, outTok: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  { match: /sonnet/i, inTok: 3, outTok: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  { match: /haiku/i, inTok: 1, outTok: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+];
+
+function estimateCostUsd(model: string, t: ModelUsageTotals): number {
+  const price = MODEL_PRICES.find((p) => p.match.test(model));
+  if (!price) return 0;
+  return (
+    (t.inputTokens * price.inTok +
+      t.outputTokens * price.outTok +
+      t.cacheReadInputTokens * price.cacheRead +
+      t.cacheCreationInputTokens * price.cacheWrite) /
+    1_000_000
+  );
+}
+
 const AGENTS = loadAgents();
 
 interface ReviewGate {
@@ -342,6 +368,7 @@ export class OrchestratorSession {
     entry.outputTokens += usage.output_tokens ?? 0;
     entry.cacheReadInputTokens += usage.cache_read_input_tokens ?? 0;
     entry.cacheCreationInputTokens += usage.cache_creation_input_tokens ?? 0;
+    entry.costUsd = estimateCostUsd(model, entry);
     this.liveUsage.set(model, entry);
     const now = Date.now();
     if (now - this.lastLiveEmit >= 10_000) {
@@ -350,12 +377,16 @@ export class OrchestratorSession {
       this.project.emit('usage', 'orchestrator', {
         byModel: combined.byModel as unknown as Record<string, unknown>,
         totalCostUsd: combined.totalCostUsd,
+        estimated: true,
         live: true,
       });
     }
   }
 
-  /** Persisted totals plus the live in-turn token overlay (cost lags a turn). */
+  /**
+   * Persisted (authoritative) totals plus the live in-turn overlay, whose
+   * cost portion is a pricing-table estimate until the next turn boundary.
+   */
   private combinedUsage(): UsageTotals {
     const base = this.project.meta.usage;
     const totals: UsageTotals = base
@@ -367,7 +398,9 @@ export class OrchestratorSession {
       entry.outputTokens += live.outputTokens;
       entry.cacheReadInputTokens += live.cacheReadInputTokens;
       entry.cacheCreationInputTokens += live.cacheCreationInputTokens;
+      entry.costUsd += live.costUsd;
       totals.byModel[model] = entry;
+      totals.totalCostUsd += live.costUsd;
     }
     return totals;
   }
