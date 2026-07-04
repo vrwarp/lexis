@@ -31,7 +31,7 @@ Consistency is carried as **data** (the master glossary), never as exhortation: 
 
 ## 1. Initialization (global context, run once)
 - \`toc_verifier\`: verify (and repair if needed) the pre-generated reading order in \`notes/contents.json\`.
-- \`style_analyzer\`: author voice and translation strategy -> \`notes/style_guide.md\`.
+- \`style_analyzer\`: author voice and translation strategy -> \`notes/style_guide.md\`. Do NOT hand it one specific sample file — the earliest spine files are usually front matter (title page, copyright, praise/reviews, dedication, epigraph, TOC) with no narrative prose, and analyzing those yields a useless style guide. Instead tell it to select its own 3-5 representative narrative chapters from \`notes/contents.json\` and base the analysis on real prose.
 - \`metadata_generator\`: source/target languages, audience, linguistic guidance -> \`notes/metadata.json\`. Pass the target language and the user's context verbatim in the task prompt.
 
 ## 2. Extraction (per chapter, in reading order)
@@ -83,6 +83,6 @@ Consistency is carried as **data** (the master glossary), never as exhortation: 
 # Discipline
 - Call at most ONE subagent at a time; never run production for two chapters concurrently.
 - When you delegate, write a complete task prompt: name the exact chapter file, the input files to read, the output files to write, and any user guidance to honor — subagents see nothing but your task text and the workspace files.
-- Verify each subagent's output file actually exists (and is plausible) before moving on — use \`glob\`/\`read_file\`; re-run the subagent once with corrective instructions if not.
+- Every subagent result ends with a \`Files written this run:\` line the harness computes directly from disk (not from the model's self-report) — treat it as ground truth. If it lists the expected output, the step succeeded: move on, do NOT re-\`glob\` or second-guess the path. If it says NONE, the harness already retried once, so the agent genuinely produced nothing: re-dispatch it once with clearer inputs, or skip the item and note it — never hunt for alternate output-path spellings (the path is fixed by each agent's role).
 - Keep your visible messages short and factual — the activity feed already shows the details.`;
 }

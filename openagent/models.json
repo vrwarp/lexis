@@ -1,6 +1,6 @@
 {
-  "//": "OpenRouter free-tier configuration. Tiers follow docs/LESSONS.md: the strongest model does the actual translation, reliable tool-callers do everything else. All are :free models with function calling (mandatory — every agent drives file tools) that keep reasoning in a separate field (no leak into output, satisfying LESSONS.md #4). This harness reaches OpenRouter through its OpenAI-compatible endpoint; the key is read from OPENROUTER_API_KEY (apiKeyEnv). Get a key at https://openrouter.ai/keys.",
-  "//model-choice": "These NVIDIA/gpt-oss models are served on their own infrastructure and were the reliably-available, tool-capable free models when this was written. Popular free models routed to shared upstreams (e.g. Venice-hosted qwen/llama) are frequently HTTP-429 'rate-limited upstream' and can be unusable for a sustained pipeline. If these get saturated too, the harness retries with Retry-After backoff (see src/diagnostics.ts); check https://openrouter.ai/models for what's live and swap freely.",
+  "//": "OpenRouter free-tier configuration. Tiers follow docs/LESSONS.md: the strongest model does the actual translation, reliable tool-callers do everything else. All are :free models with function calling (mandatory — every agent drives file tools). This harness reaches OpenRouter through its OpenAI-compatible endpoint; the key is read from OPENROUTER_API_KEY (apiKeyEnv). Get a key at https://openrouter.ai/keys.",
+  "//model-choice": "All tiers use nemotron-3-super, which is served on NVIDIA's own infrastructure and emits clean OpenAI-style tool_calls. The mechanical tier previously used openai/gpt-oss-20b:free, but live runs showed it intermittently leaking its raw harmony/channel control tokens into the text stream (e.g. 'to=functions.read_file', stray role tokens) instead of emitting structured tool_calls — so its file writes silently never executed and the orchestrator burned its whole step budget on phantom failures. That is a model/provider quality problem, not promptable, so we moved off it; keep it only as the documented experiment below if you want to retry it. Popular free models routed to shared upstreams (e.g. Venice-hosted qwen/llama) are frequently HTTP-429 'rate-limited upstream'. If nemotron saturates too, the harness retries with Retry-After backoff (see src/diagnostics.ts); check https://openrouter.ai/models for what's live and swap freely.",
   "//limits": "OpenRouter free (:free) models are shared upstream capacity: expect frequent HTTP 429 ('temporarily rate-limited upstream'), which the harness auto-retries with backoff. On top of that there is an ACCOUNT-WIDE daily cap across all free models: 50 requests/day by default, 1000/day after buying ~$10 of credits, plus ~20 req/min. A full ~100k-word novel runs on the order of ~1000 requests, so: 50 RPD = a chapter/day, a whole book over a couple of weeks (fine if unhurried — the git-checkpointed workspace resumes across days); 1000 RPD = a book in a day or two but you'll still hit upstream 429s and wait through backoff. For a smooth run, add a little OpenRouter credit or your own upstream key (BYOK, https://openrouter.ai/settings/integrations), or use the commented Anthropic paid block (no daily cap, a few dollars per book).",
   "tiers": {
     "translation": {
@@ -14,7 +14,7 @@
       "provider": "openai-compatible",
       "baseURL": "https://openrouter.ai/api/v1",
       "apiKeyEnv": "OPENROUTER_API_KEY",
-      "model_id": "openai/gpt-oss-20b:free",
+      "model_id": "nvidia/nemotron-3-super-120b-a12b:free",
       "maxOutputTokens": 8000
     },
     "orchestrator": {
@@ -31,7 +31,7 @@
     }
   },
   "agent_overrides": {
-    "//": "Per-agent experiments — keys here override the agent's tier spec. For higher translation quality when it's available, try \"translation\" tier model nvidia/nemotron-3-ultra-550b-a55b:free (550B, 1M ctx). Qwen is the multilingual king (qwen/qwen3-next-80b-a3b-instruct:free) but is usually Venice-hosted and 429-saturated."
+    "//": "Per-agent experiments — keys here override the agent's tier spec. For higher translation quality when it's available, try \"translation\" tier model nvidia/nemotron-3-ultra-550b-a55b:free (550B, 1M ctx). Qwen is the multilingual king (qwen/qwen3-next-80b-a3b-instruct:free) but is usually Venice-hosted and 429-saturated. To retry gpt-oss on the light mechanical agents (it is cheaper/faster when it behaves), set e.g. \"narrative_summarizer\": { \"model_id\": \"openai/gpt-oss-20b:free\" } — but watch for the harmony-token leak noted above."
   },
   "pricing": {
     "//": "$/MTok fallback for cost display. The :free models above cost $0 and match nothing here, so cost shows $0. These entries apply if you swap in paid models.",

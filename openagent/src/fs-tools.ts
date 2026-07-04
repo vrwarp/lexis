@@ -45,6 +45,48 @@ function* walkFiles(root: string, dir: string): Generator<string> {
   }
 }
 
+export interface FileStamp {
+  mtimeMs: number;
+  size: number;
+}
+
+/**
+ * Snapshot every workspace file (excluding `.git`) as relpath -> {mtime, size}.
+ * Used to compute — deterministically, in code — exactly which files a subagent
+ * created or modified, so the orchestrator never has to trust an LLM's
+ * self-reported status (docs/LESSONS.md #4).
+ */
+export function snapshotWorkspace(workspace: string): Map<string, FileStamp> {
+  const root = path.resolve(workspace);
+  const out = new Map<string, FileStamp>();
+  if (!fs.existsSync(root)) return out;
+  for (const abs of walkFiles(root, root)) {
+    try {
+      const st = fs.statSync(abs);
+      out.set(path.relative(root, abs).split(path.sep).join('/'), { mtimeMs: st.mtimeMs, size: st.size });
+    } catch {
+      // unreadable entry — ignore
+    }
+  }
+  return out;
+}
+
+/** Paths created or modified between two snapshots (new, or changed mtime/size), sorted. */
+export function diffWritten(before: Map<string, FileStamp>, after: Map<string, FileStamp>): string[] {
+  const changed: string[] = [];
+  for (const [rel, st] of after) {
+    const prev = before.get(rel);
+    if (!prev || prev.mtimeMs !== st.mtimeMs || prev.size !== st.size) changed.push(rel);
+  }
+  return changed.sort();
+}
+
+export function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 /** Minimal glob matcher supporting *, ** and ? — enough for the pipeline's patterns. */
 function globToRegExp(pattern: string): RegExp {
   let out = '';
