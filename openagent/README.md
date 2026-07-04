@@ -39,11 +39,13 @@ reached through OpenRouter's OpenAI-compatible endpoint:
 |---|---|---|
 | `translation` | `nvidia/nemotron-3-super-120b-a12b:free` — capable + clean multilingual output, 1M ctx | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
 | `mechanical` | `openai/gpt-oss-20b:free` — fast, reliable tool-caller | the other 10 agents |
-| `orchestrator` | `openai/gpt-oss-20b:free` — fast tool-calling for the high-volume sequencing role | the orchestrator |
+| `orchestrator` | `nvidia/nemotron-3-super-120b-a12b:free` — capable sequencing over a long conversation | the orchestrator |
 
 The strongest model sits on `translation` per [`../docs/LESSONS.md`](../docs/LESSONS.md) #1;
-the orchestrator uses a fast small model because it makes the most calls. Get a key at
-<https://openrouter.ai/keys> and set `OPENROUTER_API_KEY`.
+the orchestrator uses the same capable model because it drives the whole pipeline and a
+smaller model (e.g. `gpt-oss-20b`) tended to flail on the sequencing. The fast small model
+runs the mechanical extraction agents. Get a key at <https://openrouter.ai/keys> and set
+`OPENROUTER_API_KEY`.
 
 > **Free-tier reality — read this before translating a whole book.** OpenRouter's free
 > (`:free`) models are *shared upstream capacity*. Two things bite:

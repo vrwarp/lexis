@@ -21,7 +21,7 @@
       "provider": "openai-compatible",
       "baseURL": "https://openrouter.ai/api/v1",
       "apiKeyEnv": "OPENROUTER_API_KEY",
-      "model_id": "openai/gpt-oss-20b:free",
+      "model_id": "nvidia/nemotron-3-super-120b-a12b:free",
       "maxOutputTokens": 8000
     },
     "//anthropic-alternative": {
