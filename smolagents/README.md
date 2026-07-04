@@ -40,15 +40,27 @@ all tool-capable, all instruct-tuned):
 | `orchestrator` | `meta-llama/llama-3.3-70b-instruct:free` — reliable high-volume tool-calling | the orchestrator |
 
 The strongest multilingual model sits on `translation` per [`../docs/LESSONS.md`](../docs/LESSONS.md)
-#1; the three tiers use three different models partly to spread OpenRouter's per-model
-free quota (see below). Get a key at <https://openrouter.ai/keys> and set
-`OPENROUTER_API_KEY`.
+#1 — that tier split is about translation quality, not quota. Get a key at
+<https://openrouter.ai/keys> and set `OPENROUTER_API_KEY`.
 
-> **Free-tier limits:** OpenRouter free models are capped at ~20 requests/min and
-> ~200 requests/day *per model*. A full-book run makes many more calls than that, so the
-> free tier is for testing / small books. For real books, add OpenRouter credits (raises
-> the limits) or swap in paid models — the file ships a commented `//anthropic-alternative`
-> block (Opus for translation, Sonnet for the rest) you can lift into place.
+> **Free-tier limits & how much a book costs.** OpenRouter's free (`:free`) models share an
+> **account-wide** daily request cap — **50 requests/day** by default, raised to **1,000/day**
+> once you've bought a small credit balance (~$10) — plus a short-term limit of roughly 20
+> requests/minute. The daily cap counts all free models together, so using three tiers does
+> **not** stretch it.
+>
+> A full novel is request-heavy: the orchestrator and every subagent are step-by-step
+> tool-calling loops, so a ~100k-word, ~15-chapter book (e.g. *Ender's Game*) runs on the order
+> of **~1,000 requests** end-to-end (the per-chapter draft/omission, stray-phrase, critique, and
+> finalize passes dominate). That maps to:
+> - **50 RPD** → roughly a chapter's worth of pipeline per day; a whole novel takes a couple of
+>   weeks. **That's perfectly fine if you're not in a hurry** — the workspace is checkpointed in
+>   git and the orchestrator resumes across restarts, so you can run a little each day and pick
+>   up where you left off.
+> - **1,000 RPD** (after the deposit) → a full book in a day or two.
+> - **Paid models** — lift the commented `//anthropic-alternative` block into `models.json` — have
+>   no daily cap; a full book runs a few dollars. Best for translating a book start-to-finish in
+>   one sitting; keep the free config for smoke-testing a chapter or two.
 
 Swap providers freely — LiteLLM ids like `gemini/gemini-2.5-pro`, `openai/gpt-5`,
 `deepseek/deepseek-chat`, `openrouter/<any-model>`, `ollama_chat/qwen3:32b`, or
