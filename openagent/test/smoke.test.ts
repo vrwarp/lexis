@@ -68,14 +68,14 @@ check('orchestrator prompt renders', orchestratorPrompt(project.meta).includes('
 // ---------- prompt registry ----------
 
 const registry = new PromptRegistry();
-check('14 agent definitions load', registry.names().length === 14, registry.names().join(','));
+check('13 agent definitions load', registry.names().length === 13, registry.names().join(','));
 check(
   'tiers assigned per LESSONS',
   ['primary_translator', 'final_translator', 'native_critique', 'metadata_generator'].every(
     n => registry.get(n).tier === 'translation',
-  ) && registry.get('ebook_disbinder').tier === 'mechanical',
+  ) && registry.get('style_analyzer').tier === 'mechanical',
 );
-check('mustache render works', registry.finish('ebook_disbinder').includes('Ebook Disbinder'));
+check('mustache render works', registry.finish('style_analyzer').includes('Style Analyzer'));
 
 // ---------- file tools ----------
 
@@ -168,9 +168,9 @@ class MockModel {
 
 const orchScript = (step: number): Content[] =>
   [
-    [text('Starting preparation.'), call('report_progress', { phase: 'preparation', state: 'started' }, 'c1')],
-    [call('ebook_disbinder', { task: 'Extract source.epub into original/ and verify.' }, 'c2')],
-    [call('save_version', { label: 'after preparation' }, 'c3')],
+    [text('Starting initialization.'), call('report_progress', { phase: 'initialization', state: 'started' }, 'c1')],
+    [call('toc_verifier', { task: 'Verify the reading order in notes/contents.json.' }, 'c2')],
+    [call('save_version', { label: 'after initialization' }, 'c3')],
     [call('request_review', { summary: '1 chapter drafted; ready to package?' }, 'c4')],
     [call('mark_complete', { epub_path: 'translated_book.epub', summary: 'done' }, 'c5')],
     [text('Pipeline finished; EPUB is ready to download.')],
@@ -179,7 +179,7 @@ const orchScript = (step: number): Content[] =>
 const subScript = (step: number): Content[] =>
   step % 2 === 0
     ? [text('Checking workspace.'), call('bash', { command: 'ls' }, `s${step}`)]
-    : [text('original/ verified; extraction ok.')];
+    : [text('notes/contents.json reading order verified.')];
 
 class MockFactory extends ModelFactory {
   constructor() {
@@ -215,7 +215,7 @@ const types = new Set(events.map(e => e.type));
 for (const expected of ['user_message', 'progress', 'task_start', 'task_end', 'version', 'review_request', 'review_response', 'agent_text', 'usage', 'status']) {
   check(`event emitted: ${expected}`, types.has(expected as never));
 }
-check('subagent attributed events', events.some(e => e.agent === 'ebook_disbinder'));
+check('subagent attributed events', events.some(e => e.agent === 'toc_verifier'));
 check('tool_use from subagent bash', events.some(e => e.type === 'tool_use' && (e.data as { tool?: string }).tool === 'bash'));
 check('progress done emitted', events.some(e => e.type === 'progress' && (e.data as { phase?: string }).phase === 'done'));
 const usage = project.meta.usage;

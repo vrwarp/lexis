@@ -154,7 +154,8 @@ export function createProject(input: {
     // code so the toc_verifier agent never has to hand-parse the OPF.
     generateContents(project.workspace);
   } catch {
-    // a malformed EPUB will surface via the disbinder's verification
+    // best-effort at creation (populates original/ for the file browser); a
+    // malformed EPUB is authoritatively caught in code by validateEpub at /start
   }
   // The workspace is a git repository: that is the versioning mechanism.
   const git = (...args: string[]) => execFileSync('git', args, { cwd: project.workspace });

@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import HARNESS_DIR
-from .epub import cover_mime, extract_epub, generate_contents, replace_cover
+from .epub import cover_mime, extract_epub, generate_contents, replace_cover, validate_epub
 from .orchestrator import peek_session, session_for
 from .projects import Project, create_project, get_project, list_projects
 from .versioning import list_versions, revert_to_version, save_version
@@ -104,21 +104,35 @@ def api_start(project_id: str):
     # partial extraction. The source is immutable, so this is safe/idempotent.
     source = project.workspace / "source.epub"
     if source.exists():
+        # Preparation is fully mechanical: extract, validate, and parse the reading
+        # order in code (no LLM ebook_disbinder). The source is immutable, so this is
+        # idempotent and also repairs a project whose earlier run left original/ partial.
         try:
             count = extract_epub(source, project.workspace / "original")
+            warnings = validate_epub(project.workspace)  # raises EpubError on a fatal problem
             chapters = generate_contents(project.workspace)
             detail = f"Extracted {count} source files into original/"
             if chapters:
                 detail += f"; wrote notes/contents.json ({chapters} chapters, from the OPF spine)"
-            project.emit("progress", "orchestrator", {"phase": "preparation", "state": "started", "detail": detail})
+            if warnings:
+                detail += f" (warnings: {'; '.join(warnings)})"
+            project.emit("progress", "orchestrator", {"phase": "preparation", "state": "completed", "detail": detail})
         except Exception as error:
-            project.emit("error", "orchestrator", {"message": f"Deterministic EPUB extraction failed: {error}"})
+            # A malformed/DRM'd/corrupt EPUB is surfaced here, in code — not left for a
+            # model to notice. Stop before wasting a pipeline run on unusable input.
+            message = f"Preparation failed: {error}"
+            project.emit("progress", "orchestrator", {"phase": "preparation", "state": "failed", "detail": message})
+            project.set_status("error", message)
+            raise HTTPException(status_code=422, detail=message)
     message = (
         f"Begin the translation of source.epub into {meta['targetLanguage']}. "
         + (f"User context: {meta['context']}. " if meta.get("context") else "")
-        + "Run the full pipeline from Preparation onward. If the workspace already contains partial "
-        "pipeline output (original/, notes/, draft/, final/), assess what is already done and continue "
-        "from there instead of redoing completed work."
+        + "Preparation is already complete: the harness has extracted and validated source.epub into "
+        "original/ and written notes/contents.json (the reading order). Run the pipeline from "
+        "Initialization onward (toc_verifier, then style_analyzer, metadata_generator, then per-chapter "
+        "extraction and production). If the workspace already contains partial pipeline output "
+        "(notes/, draft/, final/), assess what is already done and continue from there instead of "
+        "redoing completed work."
     )
     session_for(project).send(message)
     return {"ok": True}

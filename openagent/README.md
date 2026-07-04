@@ -90,8 +90,9 @@ OPENROUTER_API_KEY=sk-or-... npm start     # http://localhost:4702 (free-model d
 ```
 
 `PORT` overrides the port; `LEXIS_OA_DATA_DIR` overrides project storage (default
-`openagent/data/`). `git` must be on `PATH` (versioning); `zip`/`unzip` are used by the
-disbinder/packager agents via the `bash` tool. Tuning: `LEXIS_OA_ORCH_MAX_STEPS`
+`openagent/data/`). `git` must be on `PATH` (versioning); `zip`/`unzip` are used for EPUB
+(un)packing — extraction by the harness in code, repackaging by the packager agent via the
+`bash` tool. Tuning: `LEXIS_OA_ORCH_MAX_STEPS`
 (default 500 per user turn), `LEXIS_OA_KEEP_RECENT_MESSAGES` / `LEXIS_OA_PRUNED_OUTPUT_CHARS`
 (bounded-memory pruning).
 

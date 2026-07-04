@@ -2,9 +2,11 @@
 
 The lexis EPUB translation pipeline running on
 [smolagents](https://github.com/huggingface/smolagents), built to **diversify the models**
-behind the pipeline: the design is identical to the Claude Agent SDK harness
-([`../claude/`](../claude/)) — same 14 subagents, same prompts, same sequencing, review
-gate, versioning, and web UI — but every model slot is a config entry that can point at
+behind the pipeline: the design mirrors the Claude Agent SDK harness
+([`../claude/`](../claude/)) — same prompts, sequencing, review gate, versioning, and web
+UI — except EPUB extraction + validation run deterministically in code (not via an LLM
+agent), so the pipeline is 13 model-driven subagents rather than 14. Every model slot is a
+config entry that can point at
 any provider (Anthropic, OpenAI, Gemini, DeepSeek, Mistral, HF Inference, OpenRouter,
 local vLLM/Ollama, …).
 
@@ -92,7 +94,7 @@ OPENROUTER_API_KEY=sk-or-... ./run.sh     # http://localhost:4701 (free-model de
 
 `PORT` overrides the port; `LEXIS_SMOL_DATA_DIR` overrides where projects are stored
 (default `smolagents/data/`). `git` must be on `PATH` (versioning); `zip`/`unzip` are used
-by the disbinder/packager agents via the `bash` tool.
+by the packager agent via the `bash` tool (source extraction is deterministic, in code).
 
 Tuning env vars: `LEXIS_SMOL_ORCH_MAX_STEPS` (default 500 steps per user turn),
 `LEXIS_SMOL_KEEP_RECENT_STEPS` / `LEXIS_SMOL_PRUNED_OBS_CHARS` (bounded-memory pruning).

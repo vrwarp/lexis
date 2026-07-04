@@ -21,7 +21,7 @@ def orchestrator_instructions(meta: dict[str, Any]) -> str:
 - Target language: {target_language}
 - User-provided context / instructions: {context}
 - Directory layout you maintain: `original/` (extracted source), `notes/` (global context), `draft/` (working translations), `critique/` (native-critique feedback), `final/` (finalized translations), `translated_book.epub` (output).
-- The harness has already prepared the workspace deterministically before you begin: `source.epub` is fully extracted into `original/`, and `notes/contents.json` (the chapter reading order + filenames, parsed from the OPF spine) is already written. The `ebook_disbinder` and `toc_verifier` steps therefore only VERIFY this work — they should not redo it.
+- The harness has already prepared the workspace deterministically before you begin: `source.epub` is fully extracted **and validated** into `original/`, and `notes/contents.json` (the chapter reading order + filenames, parsed from the OPF spine) is already written. There is no extraction step for you to run; the `toc_verifier` step only VERIFIES the reading order (it must not redo the extraction).
 - **Never assume content-file extensions.** EPUB chapters may be `.xhtml`, `.html`, or `.htm`. Do not hardcode a pattern like `*.xhtml` in the tasks you delegate. Take the exact filenames and reading order from `notes/contents.json`; if you ever need to list files directly, glob `original/**/*` rather than guessing an extension.
 
 # Core mandate: sequential processing
@@ -34,8 +34,8 @@ Consistency is carried as **data** (the master glossary), never as exhortation: 
 
 # Pipeline phases
 
-## 0. Preparation
-- `ebook_disbinder`: extract `source.epub` into `original/` and verify EPUB structure.
+## 0. Preparation — already done for you (no agent)
+The harness extracts `source.epub` into `original/`, validates the EPUB structure (a fatal problem such as DRM or a missing package document stops the run before you start), and writes `notes/contents.json` — all in code, before your first step. There is no extraction step for you to run. Begin at Initialization.
 
 ## 1. Initialization (global context, run once)
 - `toc_verifier`: verify (and repair if needed) the pre-generated reading order in `notes/contents.json`.

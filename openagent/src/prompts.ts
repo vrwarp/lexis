@@ -15,7 +15,7 @@ Mustache.escape = (text: string) => text;
 const AGENTS_DIR = path.join(HARNESS_DIR, 'agents');
 
 export interface AgentPrompt {
-  /** Tool-safe name (underscores), e.g. ebook_disbinder. */
+  /** Tool-safe name (underscores), e.g. toc_verifier. */
   name: string;
   description: string;
   /** Model tier from frontmatter: translation | mechanical. */

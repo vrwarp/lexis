@@ -58,6 +58,40 @@ def extract_epub(epub_path: Path, dest: Path) -> int:
     return sum(1 for p in dest.rglob("*") if p.is_file())
 
 
+class EpubError(Exception):
+    """Raised by validate_epub when an extracted EPUB cannot be translated."""
+
+
+def validate_epub(workspace: Path) -> list[str]:
+    """Deterministic sanity checks on the freshly-extracted EPUB. Raises EpubError
+    on a fatal problem (DRM, or no reachable package document); returns a list of
+    non-fatal warnings.
+
+    This is the in-code replacement for the LLM ebook_disbinder's "verification":
+    extract_epub already guarantees every archive entry is on disk, and structural
+    validity is a purely mechanical check that must not depend on a model
+    (docs/LESSONS.md #4). Doing it here is certain, free, and cannot spin.
+    """
+    original = Path(workspace) / "original"
+    if (original / "META-INF" / "encryption.xml").exists():
+        raise EpubError(
+            "The EPUB appears to be DRM-protected (META-INF/encryption.xml is present); "
+            "its content is encrypted and cannot be translated."
+        )
+    if _opf_path(original) is None:
+        raise EpubError(
+            "This does not look like a valid EPUB: no package document (.opf) is reachable "
+            "from META-INF/container.xml."
+        )
+    warnings: list[str] = []
+    mimetype = original / "mimetype"
+    if not mimetype.exists():
+        warnings.append("mimetype file is missing")
+    elif mimetype.read_text(encoding="utf-8", errors="replace").strip() != "application/epub+zip":
+        warnings.append("mimetype is not 'application/epub+zip'")
+    return warnings
+
+
 def _opf_path(original: Path) -> Path | None:
     """Locate the OPF package document via META-INF/container.xml."""
     container = original / "META-INF" / "container.xml"
