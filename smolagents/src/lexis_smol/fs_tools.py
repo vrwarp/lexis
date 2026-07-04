@@ -262,7 +262,8 @@ TOOL_CLASSES = {
 }
 
 
-def build_toolset(workspace: Path, names: list[str]) -> list[Tool]:
+def build_toolset(workspace: Path | str, names: list[str]) -> list[Tool]:
+    workspace = Path(workspace)  # accept str or Path so `ws / rel` never fails
     unknown = [n for n in names if n not in TOOL_CLASSES]
     if unknown:
         raise ValueError(f"Unknown tool(s) in agent definition: {unknown}")
