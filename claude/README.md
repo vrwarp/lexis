@@ -72,11 +72,13 @@ extraction, and versioning use them).
 - **Usage & cost** — per-model token usage (input, output, cache read/write)
   and cost are shown in the UI's Usage panel with a running project total.
   Token counts update live during a run (accumulated from each assistant
-  message's API usage, subagents included); the SDK only reports `modelUsage`
-  with `costUSD` on `result` messages at turn boundaries, so cost figures
-  update when a turn completes and are reconciled against that authoritative
-  report. Costs are the API-equivalent numbers the SDK computes — actual spend
-  on an API key, an estimate when running on a subscription.
+  message's API usage, subagents included). The SDK only reports `modelUsage`
+  with `costUSD` on `result` messages at turn boundaries — and the pipeline
+  can be one long turn (the review gate blocks inside it) — so live costs are
+  estimated from standard per-model API pricing (shown with a `~`) and
+  replaced by the SDK's authoritative figures whenever a turn completes.
+  Costs are API-equivalent numbers — actual spend on an API key, an estimate
+  when running on a subscription.
 - **Custom cover (optional)** — upload a cover any time. Before packaging it's
   written into the workspace as `cover_override.*` and the packager uses it.
   After the EPUB exists, "Repackage" swaps the cover deterministically

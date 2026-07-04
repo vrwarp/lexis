@@ -184,7 +184,9 @@ function handleEvent(ev) {
         const totalPart = total != null ? ` · project total $${Number(total).toFixed(2)}` : '';
         addFeed(ev, 'usage', `turn · $${Number(turn).toFixed(2)}${totalPart} · ${Math.round(ev.data.durationMs / 1000)}s`);
       }
-      if (ev.data.byModel) renderUsage({ byModel: ev.data.byModel, totalCostUsd: total });
+      if (ev.data.byModel) {
+        renderUsage({ byModel: ev.data.byModel, totalCostUsd: total, estimated: ev.data.estimated });
+      }
       break;
     }
     case 'error':
@@ -411,14 +413,15 @@ function renderUsage(usage) {
     totalEl.textContent = '';
     return;
   }
-  totalEl.textContent = usage.totalCostUsd != null ? `$${usage.totalCostUsd.toFixed(2)}` : '';
+  const approx = usage.estimated ? '~' : '';
+  totalEl.textContent = usage.totalCostUsd != null ? `${approx}$${usage.totalCostUsd.toFixed(2)}` : '';
   panel.innerHTML = '';
   const models = Object.entries(usage.byModel).sort((a, b) => b[1].costUsd - a[1].costUsd);
   for (const [model, u] of models) {
     const el = document.createElement('div');
     el.className = 'usage-model';
     el.innerHTML = `
-      <div class="um-name"><span></span><span class="um-cost">$${u.costUsd.toFixed(2)}</span></div>
+      <div class="um-name"><span></span><span class="um-cost">${approx}$${u.costUsd.toFixed(2)}</span></div>
       <div class="um-tokens">
         <span>in <b>${fmtTokens(u.inputTokens)}</b></span>
         <span>out <b>${fmtTokens(u.outputTokens)}</b></span>
@@ -431,7 +434,9 @@ function renderUsage(usage) {
   }
   const note = document.createElement('p');
   note.className = 'usage-note';
-  note.textContent = 'Tokens update live during a run; cost figures are API-equivalent (an estimate on a subscription) and update at each turn boundary.';
+  note.textContent = usage.estimated
+    ? '~ = live estimate from standard API pricing; replaced by the SDK’s exact figures at the next turn boundary.'
+    : 'API-equivalent cost as reported by the SDK (an estimate when running on a subscription).';
   panel.appendChild(note);
 }
 
