@@ -160,7 +160,7 @@ def create_project(
     try:
         extract_epub(project.workspace / "source.epub", project.workspace / "original")
         # Reading order + titles are a mechanical OPF-spine parse; produce them
-        # in code so the toc_generator agent never has to hand-parse the OPF.
+        # in code so the toc_verifier agent never has to hand-parse the OPF.
         generate_contents(project.workspace)
     except Exception:
         pass  # a malformed EPUB will surface via the disbinder's verification

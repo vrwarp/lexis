@@ -151,7 +151,7 @@ export function createProject(input: {
     fs.mkdirSync(path.join(project.workspace, 'original'), { recursive: true });
     execFileSync('unzip', ['-o', '-qq', 'source.epub', '-d', 'original'], { cwd: project.workspace });
     // Reading order + titles are a mechanical OPF-spine parse; produce them in
-    // code so the toc_generator agent never has to hand-parse the OPF.
+    // code so the toc_verifier agent never has to hand-parse the OPF.
     generateContents(project.workspace);
   } catch {
     // a malformed EPUB will surface via the disbinder's verification
