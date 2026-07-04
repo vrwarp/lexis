@@ -26,6 +26,7 @@ import type { Project } from './projects.js';
 import { orchestratorPrompt } from './prompt.js';
 import { PromptRegistry } from './prompts.js';
 import { buildSubagentTools, type SessionHooks } from './subagents.js';
+import { describeError, logLine } from './diagnostics.js';
 import type { ModelUsageTotals, UsageTotals } from './types.js';
 import { saveVersion } from './versioning.js';
 
@@ -34,6 +35,11 @@ const ORCH_MAX_STEPS = Number(process.env.LEXIS_OA_ORCH_MAX_STEPS ?? 500);
 const PRUNE_KEEP_RECENT = Number(process.env.LEXIS_OA_KEEP_RECENT_MESSAGES ?? 40);
 const PRUNE_OUTPUT_CHARS = Number(process.env.LEXIS_OA_PRUNED_OUTPUT_CHARS ?? 1500);
 const USAGE_EMIT_INTERVAL_MS = 10_000;
+/** Abort the turn after this many consecutive subagent failures (a dead model
+ * would otherwise make the orchestrator grind to ORCH_MAX_STEPS silently). */
+const FAILFAST_THRESHOLD = Number(process.env.LEXIS_OA_FAILFAST ?? 4);
+/** Per-step console logging (turn/subagent/error lines are always logged). */
+const DEBUG = Boolean(process.env.LEXIS_OA_DEBUG);
 
 const HARNESS_TOOL_NAMES = new Set([
   'report_progress',
@@ -81,6 +87,8 @@ export class OrchestratorSession {
   private abortController: AbortController | null = null;
   private subagentNames: Set<string>;
   private lastUsageEmit = 0;
+  private consecutiveFailures = 0;
+  private abortReason: string | null = null;
 
   constructor(project: Project, factory?: ModelFactory, registry?: PromptRegistry) {
     this.project = project;
@@ -148,7 +156,10 @@ export class OrchestratorSession {
     project.setStatus('running');
     this.completedThisTurn = false;
     this.abortController = new AbortController();
+    this.consecutiveFailures = 0;
+    this.abortReason = null;
     const injected: string[] = [];
+    logLine('turn-start', `${project.meta.id}: ${task.replace(/\s+/g, ' ').slice(0, 100)}`);
 
     this.pruneHistory();
     this.history.push({ role: 'user', content: task });
@@ -158,6 +169,7 @@ export class OrchestratorSession {
       trackUsage: (modelId, usage) => this.trackUsage(modelId, usage),
       onStepEvents: (agent, step) => this.emitStepEvents(agent, step),
       currentSignal: () => this.abortController?.signal,
+      reportOutcome: (agent, ok, detail) => this.reportSubagentOutcome(agent, ok, detail),
     };
 
     const tools = {
@@ -177,6 +189,7 @@ export class OrchestratorSession {
         tools,
         stopWhen: stepCountIs(ORCH_MAX_STEPS),
         abortSignal: this.abortController.signal,
+        maxRetries: 0, // the resilient fetch (config.ts) owns retry/backoff
         // Mid-run steering: queued user messages join the conversation before
         // the next step (a capability open-agent's own chat does not have).
         prepareStep: ({ messages }) => {
@@ -211,10 +224,18 @@ export class OrchestratorSession {
       const finalText = result.text?.trim();
       if (finalText) project.emit('agent_text', 'orchestrator', { text: finalText });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (this.abortController.signal.aborted) {
+      if (this.abortReason) {
+        // A fail-fast abort we triggered ourselves — surface the real reason.
+        logLine('turn-aborted', this.abortReason);
+        project.setStatus('error', this.abortReason);
+        project.emit('error', 'orchestrator', { message: this.abortReason });
+      } else if (this.abortController.signal.aborted) {
+        logLine('turn-interrupted', project.meta.id);
         project.emit('status', 'orchestrator', { status: 'interrupted', detail: 'Run interrupted.' });
       } else {
+        const message = describeError(error);
+        logLine('turn-error', message);
+        if (DEBUG) console.error(error);
         project.setStatus('error', message);
         project.emit('error', 'orchestrator', { message });
       }
@@ -235,10 +256,35 @@ export class OrchestratorSession {
     }
   }
 
+  // ---------- fail-fast ----------
+
+  /** Called by each subagent tool with its outcome. Repeated failures abort the
+   * turn instead of letting the orchestrator grind to ORCH_MAX_STEPS silently. */
+  private reportSubagentOutcome(agent: string, ok: boolean, detail: string): void {
+    if (ok) {
+      this.consecutiveFailures = 0;
+      return;
+    }
+    this.consecutiveFailures += 1;
+    logLine('subagent-fail', `${agent} (${this.consecutiveFailures}/${FAILFAST_THRESHOLD}): ${detail}`);
+    // Surface every subagent failure to the UI immediately (previously these were
+    // buried in the orchestrator's tool observation and never shown).
+    this.project.emit('error', agent, { message: detail });
+    if (this.consecutiveFailures >= FAILFAST_THRESHOLD) {
+      this.abortReason =
+        `Stopped after ${this.consecutiveFailures} consecutive subagent failures. Last error: ${detail}`;
+      this.abortController?.abort();
+    }
+  }
+
   // ---------- events ----------
 
   private emitStepEvents(agent: string, step: StepResult<ToolSet>): void {
     const project = this.project;
+    if (DEBUG) {
+      const tools = (step.toolCalls ?? []).map(c => c.toolName).join(', ') || '—';
+      logLine('step', `${agent}: tools[${tools}] tok=${step.usage?.totalTokens ?? '?'}`);
+    }
     const text = step.text?.trim();
     if (text) project.emit('agent_text', agent, { text });
     if (step.reasoningText?.trim()) {

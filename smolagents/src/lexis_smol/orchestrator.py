@@ -14,6 +14,7 @@ Substrate mapping (see docs/SMOLAGENTS_ANALYSIS.md):
 from __future__ import annotations
 
 import json
+import logging
 import os
 import queue
 import threading
@@ -26,6 +27,7 @@ from smolagents.monitoring import LogLevel, Timing
 
 from .agent_defs import build_subagents
 from .config import ModelFactory
+from .diagnostics import describe_error, log_line
 from .fs_tools import build_toolset
 from .harness_tools import ReviewGate, build_harness_tools
 from .projects import Project
@@ -37,6 +39,10 @@ ORCH_MAX_STEPS = int(os.environ.get("LEXIS_SMOL_ORCH_MAX_STEPS", "500"))
 PRUNE_KEEP_RECENT = int(os.environ.get("LEXIS_SMOL_KEEP_RECENT_STEPS", "12"))
 PRUNE_OBS_CHARS = int(os.environ.get("LEXIS_SMOL_PRUNED_OBS_CHARS", "1500"))
 USAGE_EMIT_INTERVAL = 10.0  # seconds between usage events
+# Abort the turn after this many consecutive subagent failures (a dead model
+# would otherwise make the orchestrator grind to ORCH_MAX_STEPS silently).
+FAILFAST_THRESHOLD = int(os.environ.get("LEXIS_SMOL_FAILFAST", "4"))
+DEBUG = bool(os.environ.get("LEXIS_SMOL_DEBUG"))
 MEMORY_PERSIST_EVERY = 5  # orchestrator steps between memory snapshots
 
 HARNESS_TOOL_NAMES = {
@@ -78,8 +84,31 @@ class OrchestratorSession:
         self._usage_lock = threading.Lock()
         self._last_usage_emit = 0.0
         self._orch_steps_since_persist = 0
+        self._consecutive_failures = 0
+        self._abort_reason: str | None = None
         self.agent = self._build_agent()
         self._restore_memory()
+
+    # ---------- fail-fast ----------
+
+    def _note_subagent_outcome(self, agent: str, ok: bool, detail: str) -> None:
+        """Repeated subagent failures abort the turn instead of letting the
+        orchestrator grind to max_steps silently."""
+        if ok:
+            self._consecutive_failures = 0
+            return
+        self._consecutive_failures += 1
+        log_line(
+            "subagent-fail", f"{agent} ({self._consecutive_failures}/{FAILFAST_THRESHOLD}): {detail}"
+        )
+        # Surface every subagent failure to the UI immediately.
+        self.project.emit("error", agent, {"message": detail})
+        if self._consecutive_failures >= FAILFAST_THRESHOLD:
+            self._abort_reason = (
+                f"Stopped after {self._consecutive_failures} consecutive subagent failures. "
+                f"Last error: {detail}"
+            )
+            self.agent.interrupt()
 
     # ---------- construction ----------
 
@@ -97,7 +126,13 @@ class OrchestratorSession:
                     {"agent": self.name, "description": str(task)[:300]},
                 )
                 try:
-                    return super().__call__(task, **kwargs)
+                    result = super().__call__(task, **kwargs)
+                    session._note_subagent_outcome(self.name, True, "")
+                    return result
+                except Exception as exc:
+                    detail = f"{self.name}: {describe_error(exc)}"
+                    session._note_subagent_outcome(self.name, False, detail)
+                    raise
                 finally:
                     project.emit("task_end", "orchestrator", {"agent": self.name})
 
@@ -195,16 +230,28 @@ class OrchestratorSession:
         project.set_status("running")
         self._running = True
         self._completed_this_turn = False
+        self._consecutive_failures = 0
+        self._abort_reason = None
+        log_line("turn-start", f"{project.meta['id']}: {' '.join(task.split())[:100]}")
         try:
             result = self.agent.run(task, reset=False)
             text = result if isinstance(result, str) else json.dumps(result, default=str)
             if text and text.strip():
                 project.emit("agent_text", "orchestrator", {"text": text.strip()})
         except Exception as error:  # noqa: BLE001 — a turn must never kill the session thread
-            message = str(error)
-            if "interrupted" in message.lower():
+            if self._abort_reason:
+                # A fail-fast abort we triggered ourselves — surface the real reason.
+                log_line("turn-aborted", self._abort_reason)
+                project.set_status("error", self._abort_reason)
+                project.emit("error", "orchestrator", {"message": self._abort_reason})
+            elif "interrupt" in str(error).lower():
+                log_line("turn-interrupted", project.meta["id"])
                 project.emit("status", "orchestrator", {"status": "interrupted", "detail": "Run interrupted."})
             else:
+                message = describe_error(error)
+                log_line("turn-error", message)
+                if DEBUG:
+                    logging.getLogger("lexis").exception("turn failed")
                 project.set_status("error", message)
                 project.emit("error", "orchestrator", {"message": message})
         finally:

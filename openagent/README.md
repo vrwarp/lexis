@@ -31,38 +31,43 @@ harness contract; the workspace-jailed file toolkit (`read_file`, `write_file`,
 
 ## Model tiers
 
-The default [`models.json`](models.json) uses **OpenRouter free models** (all `:free`,
-all tool-capable, all instruct-tuned), reached through OpenRouter's OpenAI-compatible
-endpoint:
+The default [`models.json`](models.json) uses **OpenRouter free models** (all `:free`, all
+tool-capable, all keeping reasoning in a separate field so it never leaks into output),
+reached through OpenRouter's OpenAI-compatible endpoint:
 
 | Tier | Default (free) | Agents |
 |---|---|---|
-| `translation` | `qwen/qwen3-next-80b-a3b-instruct:free` — best free multilingual model (esp. CJK), 262K ctx | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
-| `mechanical` | `openai/gpt-oss-120b:free` — reliable tool-caller, 131K ctx | the other 10 agents |
-| `orchestrator` | `meta-llama/llama-3.3-70b-instruct:free` — reliable high-volume tool-calling | the orchestrator |
+| `translation` | `nvidia/nemotron-3-super-120b-a12b:free` — capable + clean multilingual output, 1M ctx | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
+| `mechanical` | `openai/gpt-oss-20b:free` — fast, reliable tool-caller | the other 10 agents |
+| `orchestrator` | `openai/gpt-oss-20b:free` — fast tool-calling for the high-volume sequencing role | the orchestrator |
 
-The strongest multilingual model sits on `translation` per [`../docs/LESSONS.md`](../docs/LESSONS.md)
-#1 — that tier split is about translation quality, not quota. Get a key at
+The strongest model sits on `translation` per [`../docs/LESSONS.md`](../docs/LESSONS.md) #1;
+the orchestrator uses a fast small model because it makes the most calls. Get a key at
 <https://openrouter.ai/keys> and set `OPENROUTER_API_KEY`.
 
-> **Free-tier limits & how much a book costs.** OpenRouter's free (`:free`) models share an
-> **account-wide** daily request cap — **50 requests/day** by default, raised to **1,000/day**
-> once you've bought a small credit balance (~$10) — plus a short-term limit of roughly 20
-> requests/minute. The daily cap counts all free models together, so using three tiers does
-> **not** stretch it.
+> **Free-tier reality — read this before translating a whole book.** OpenRouter's free
+> (`:free`) models are *shared upstream capacity*. Two things bite:
+> 1. **Upstream 429s.** Any free model can return `HTTP 429 "temporarily rate-limited upstream"`
+>    at any moment (popular models routed to busy providers like Venice are 429 almost
+>    constantly — that's why the defaults avoid them). The harness **auto-retries with
+>    Retry-After backoff** (a resilient `fetch` in `src/diagnostics.ts`), so runs survive
+>    transient limits; you'll just see `rate-limit` lines in the console and the run slows down.
+> 2. **Account daily cap.** Across *all* free models combined: **50 requests/day** by default,
+>    **1,000/day** after buying a small credit balance (~$10), plus ~20 req/min.
 >
-> A full novel is request-heavy: the orchestrator and every subagent are step-by-step
-> tool-calling loops, so a ~100k-word, ~15-chapter book (e.g. *Ender's Game*) runs on the order
-> of **~1,000 requests** end-to-end (the per-chapter draft/omission, stray-phrase, critique, and
-> finalize passes dominate). That maps to:
-> - **50 RPD** → roughly a chapter's worth of pipeline per day; a whole novel takes a couple of
->   weeks. **That's perfectly fine if you're not in a hurry** — the workspace is checkpointed in
->   git and the orchestrator resumes across restarts, so you can run a little each day and pick
->   up where you left off.
-> - **1,000 RPD** (after the deposit) → a full book in a day or two.
-> - **Paid providers** — lift the commented `//anthropic-alternative` block into `models.json` —
->   have no daily cap; a full book runs a few dollars. Best for translating a book start-to-finish
->   in one sitting; keep the free config for smoke-testing a chapter or two.
+> A ~100k-word, ~15-chapter novel (e.g. *Ender's Game*) is **~1,000 requests** end-to-end, so:
+> - **50 RPD** → about a chapter's pipeline per day; a whole novel over a couple of weeks.
+>   **Perfectly fine unhurried** — the workspace is git-checkpointed and the orchestrator
+>   resumes across restarts, so run a little each day and pick up where you left off.
+> - **1,000 RPD** (after the deposit) → a book in a day or two, though you'll still wait
+>   through upstream-429 backoff.
+> - **For a smooth run:** add your own upstream key (BYOK,
+>   <https://openrouter.ai/settings/integrations>) to bypass the shared limits, or lift the
+>   commented `//anthropic-alternative` block into `models.json` — paid providers have no daily
+>   cap and cost a few dollars per book. Keep the free config for smoke-testing a chapter or two.
+>
+> Errors surface with the real cause (status, upstream provider, retry-after) in both the UI
+> activity feed and the console; set `LEXIS_OA_DEBUG=1` for per-step logs and stack traces.
 
 Edit [`models.json`](models.json) (or point `LEXIS_OA_MODELS` at your own file):
 `provider` is one of `anthropic` | `openai` | `google` | `openai-compatible` — the same

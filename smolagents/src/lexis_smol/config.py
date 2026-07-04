@@ -63,9 +63,9 @@ class ModelFactory:
         spec = self.spec_for(tier, agent_name)
         provider = spec.pop("provider", "litellm")
         if provider == "litellm":
-            from smolagents import LiteLLMModel
+            from .diagnostics import make_litellm_model
 
-            return LiteLLMModel(**spec)
+            return make_litellm_model(spec)
         if provider == "openai":
             from smolagents import OpenAIModel
 

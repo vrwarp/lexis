@@ -1,26 +1,27 @@
 {
-  "//": "OpenRouter free-tier configuration. Tiers follow docs/LESSONS.md: the strongest MULTILINGUAL model does the actual translation, cheaper reliable tool-callers do everything else. All three are :free models with function calling (mandatory — every agent drives file tools) and are instruct-tuned (not reasoning models, avoiding the leaked-reasoning failure in LESSONS.md #4). This harness reaches OpenRouter through its OpenAI-compatible endpoint; the key is read from OPENROUTER_API_KEY (apiKeyEnv). Get a key at https://openrouter.ai/keys.",
-  "//limits": "OpenRouter free (:free) models share an ACCOUNT-WIDE daily request cap across all free models: 50 requests/day by default, 1000/day once you've bought ~$10 of credits, plus roughly 20 requests/minute. Using three tiers does NOT stretch the daily cap (the tier split is for translation quality, not quota). A full ~100k-word novel runs on the order of ~1000 requests through this pipeline (orchestrator + subagents are step-by-step tool loops), so: 50 RPD = a chapter/day, whole book over a couple of weeks (fine if unhurried — the git-checkpointed workspace resumes across days); 1000 RPD = a book in a day or two; paid providers (the commented Anthropic block below) have no daily cap and cost a few dollars per book.",
+  "//": "OpenRouter free-tier configuration. Tiers follow docs/LESSONS.md: the strongest model does the actual translation, reliable tool-callers do everything else. All are :free models with function calling (mandatory — every agent drives file tools) that keep reasoning in a separate field (no leak into output, satisfying LESSONS.md #4). This harness reaches OpenRouter through its OpenAI-compatible endpoint; the key is read from OPENROUTER_API_KEY (apiKeyEnv). Get a key at https://openrouter.ai/keys.",
+  "//model-choice": "These NVIDIA/gpt-oss models are served on their own infrastructure and were the reliably-available, tool-capable free models when this was written. Popular free models routed to shared upstreams (e.g. Venice-hosted qwen/llama) are frequently HTTP-429 'rate-limited upstream' and can be unusable for a sustained pipeline. If these get saturated too, the harness retries with Retry-After backoff (see src/diagnostics.ts); check https://openrouter.ai/models for what's live and swap freely.",
+  "//limits": "OpenRouter free (:free) models are shared upstream capacity: expect frequent HTTP 429 ('temporarily rate-limited upstream'), which the harness auto-retries with backoff. On top of that there is an ACCOUNT-WIDE daily cap across all free models: 50 requests/day by default, 1000/day after buying ~$10 of credits, plus ~20 req/min. A full ~100k-word novel runs on the order of ~1000 requests, so: 50 RPD = a chapter/day, a whole book over a couple of weeks (fine if unhurried — the git-checkpointed workspace resumes across days); 1000 RPD = a book in a day or two but you'll still hit upstream 429s and wait through backoff. For a smooth run, add a little OpenRouter credit or your own upstream key (BYOK, https://openrouter.ai/settings/integrations), or use the commented Anthropic paid block (no daily cap, a few dollars per book).",
   "tiers": {
     "translation": {
       "provider": "openai-compatible",
       "baseURL": "https://openrouter.ai/api/v1",
       "apiKeyEnv": "OPENROUTER_API_KEY",
-      "model_id": "qwen/qwen3-next-80b-a3b-instruct:free",
+      "model_id": "nvidia/nemotron-3-super-120b-a12b:free",
       "maxOutputTokens": 16000
     },
     "mechanical": {
       "provider": "openai-compatible",
       "baseURL": "https://openrouter.ai/api/v1",
       "apiKeyEnv": "OPENROUTER_API_KEY",
-      "model_id": "openai/gpt-oss-120b:free",
+      "model_id": "openai/gpt-oss-20b:free",
       "maxOutputTokens": 8000
     },
     "orchestrator": {
       "provider": "openai-compatible",
       "baseURL": "https://openrouter.ai/api/v1",
       "apiKeyEnv": "OPENROUTER_API_KEY",
-      "model_id": "meta-llama/llama-3.3-70b-instruct:free",
+      "model_id": "openai/gpt-oss-20b:free",
       "maxOutputTokens": 8000
     },
     "//anthropic-alternative": {
@@ -30,7 +31,7 @@
     }
   },
   "agent_overrides": {
-    "//": "Per-agent experiments, e.g. \"stray_phrase_detector\": {\"model_id\": \"google/gemma-4-31b-it:free\"} — keys here override the agent's tier spec. Other strong free tool-callers: nvidia/nemotron-3-ultra-550b-a55b:free (1M ctx), qwen/qwen3-coder:free (1M ctx), google/gemma-4-31b-it:free (140+ languages)."
+    "//": "Per-agent experiments — keys here override the agent's tier spec. For higher translation quality when it's available, try \"translation\" tier model nvidia/nemotron-3-ultra-550b-a55b:free (550B, 1M ctx). Qwen is the multilingual king (qwen/qwen3-next-80b-a3b-instruct:free) but is usually Venice-hosted and 429-saturated."
   },
   "pricing": {
     "//": "$/MTok fallback for cost display. The :free models above cost $0 and match nothing here, so cost shows $0. These entries apply if you swap in paid models.",

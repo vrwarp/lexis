@@ -8,6 +8,7 @@
 import { generateText, stepCountIs, tool, type StepResult, type Tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import type { ModelFactory } from './config.js';
+import { describeError } from './diagnostics.js';
 import { buildFileTools } from './fs-tools.js';
 import type { PromptRegistry } from './prompts.js';
 
@@ -16,6 +17,8 @@ export interface SessionHooks {
   trackUsage: (modelId: string, usage: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number }) => void;
   onStepEvents: (agent: string, step: StepResult<ToolSet>) => void;
   currentSignal: () => AbortSignal | undefined;
+  /** Report each subagent invocation's outcome so the session can fail fast. */
+  reportOutcome: (agent: string, ok: boolean, detail: string) => void;
 }
 
 const TASK_REMINDER =
@@ -52,16 +55,19 @@ export function buildSubagentTools(
             tools: fileTools,
             stopWhen: stepCountIs(agent.maxSteps),
             abortSignal: hooks.currentSignal(),
+            maxRetries: 0, // the resilient fetch (config.ts) owns retry/backoff
             onStepFinish: step => {
               hooks.trackUsage(modelId, step.usage ?? {});
               hooks.onStepEvents(agent.name, step);
             },
             ...settings,
           });
+          hooks.reportOutcome(agent.name, true, '');
           const text = result.text?.trim();
           return text || '(subagent finished without a status report — verify its output files on disk)';
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = describeError(error);
+          hooks.reportOutcome(agent.name, false, `${agent.name}: ${message}`);
           return `Subagent ${agent.name} failed: ${message}`;
         } finally {
           hooks.emit('task_end', 'orchestrator', { agent: agent.name });
