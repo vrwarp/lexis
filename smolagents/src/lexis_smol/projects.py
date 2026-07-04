@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .config import DATA_DIR
-from .epub import extract_epub
+from .epub import extract_epub, generate_contents
 
 PROJECTS_DIR = DATA_DIR / "projects"
 
@@ -159,6 +159,9 @@ def create_project(
     # complete before any agent runs (never trust the LLM to unzip everything).
     try:
         extract_epub(project.workspace / "source.epub", project.workspace / "original")
+        # Reading order + titles are a mechanical OPF-spine parse; produce them
+        # in code so the toc_generator agent never has to hand-parse the OPF.
+        generate_contents(project.workspace)
     except Exception:
         pass  # a malformed EPUB will surface via the disbinder's verification
     # The workspace is a git repository: that is the versioning mechanism.

@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import HARNESS_DIR
-from .epub import cover_mime, extract_epub, replace_cover
+from .epub import cover_mime, extract_epub, generate_contents, replace_cover
 from .orchestrator import peek_session, session_for
 from .projects import Project, create_project, get_project, list_projects
 from .versioning import list_versions, revert_to_version, save_version
@@ -106,11 +106,11 @@ def api_start(project_id: str):
     if source.exists():
         try:
             count = extract_epub(source, project.workspace / "original")
-            project.emit(
-                "progress",
-                "orchestrator",
-                {"phase": "preparation", "state": "started", "detail": f"Extracted {count} source files into original/"},
-            )
+            chapters = generate_contents(project.workspace)
+            detail = f"Extracted {count} source files into original/"
+            if chapters:
+                detail += f"; wrote notes/contents.json ({chapters} chapters, from the OPF spine)"
+            project.emit("progress", "orchestrator", {"phase": "preparation", "state": "started", "detail": detail})
         except Exception as error:
             project.emit("error", "orchestrator", {"message": f"Deterministic EPUB extraction failed: {error}"})
     message = (
