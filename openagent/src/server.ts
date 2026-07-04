@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import multer from 'multer';
 import { WebSocketServer, WebSocket } from 'ws';
-import { coverMime, replaceCover } from './epub.js';
+import { coverMime, extractEpub, replaceCover } from './epub.js';
 import { peekSession, sessionFor } from './orchestrator.js';
 import { createProject, getProject, listProjects, type Project } from './projects.js';
 import { listVersions, revertToVersion, saveVersion } from './versioning.js';
@@ -97,6 +97,22 @@ app.post(
   wrap(async (req, res) => {
     const project = requireProject(req, res);
     if (!project) return;
+    // Deterministically (re)extract the source so `original/` is guaranteed
+    // complete on every run — including projects whose earlier run left a
+    // partial extraction. The source is immutable, so this is safe/idempotent.
+    const source = path.join(project.workspace, 'source.epub');
+    if (fs.existsSync(source)) {
+      try {
+        const count = await extractEpub(source, path.join(project.workspace, 'original'));
+        project.emit('progress', 'orchestrator', {
+          phase: 'preparation',
+          state: 'started',
+          detail: `Extracted ${count} source files into original/`,
+        });
+      } catch (error) {
+        project.emit('error', 'orchestrator', { message: `Deterministic EPUB extraction failed: ${String(error)}` });
+      }
+    }
     const session = sessionFor(project);
     session.send(
       `Begin the translation of source.epub into ${project.meta.targetLanguage}. ` +
