@@ -116,11 +116,13 @@ def _clean(text: str) -> str:
 
 
 def generate_contents(workspace: Path) -> int:
-    """Deterministically write notes/contents.json (reading order + titles) from
-    the OPF spine. This is a mechanical parse — the LLM toc_generator does it
-    unreliably by hand — so we do it in code (docs/LESSONS.md #4). Returns the
-    number of chapters written, or 0 if there is no usable OPF (the agent's
-    manual fallback then applies)."""
+    """Write a BASELINE notes/contents.json (reading order + titles) from the OPF
+    spine. Parsing the spine is a mechanical task the LLM toc_generator does
+    unreliably by hand, so we do it in code (docs/LESSONS.md #4). This is only a
+    baseline, though: it is only as good as the book's own OPF annotation, so the
+    toc_generator agent still verifies it against the actual files and may
+    override it for poorly-annotated books. Returns the number of chapters
+    written, or 0 if there is no usable OPF (the agent builds it from scratch)."""
     workspace = Path(workspace)
     original = workspace / "original"
     opf_file = _opf_path(original)
