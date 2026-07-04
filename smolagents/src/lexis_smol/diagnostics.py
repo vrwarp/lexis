@@ -17,7 +17,12 @@ import time
 
 logger = logging.getLogger("lexis")
 
-REQUEST_TIMEOUT_S = float(os.environ.get("LEXIS_SMOL_REQUEST_TIMEOUT", "180"))
+# Per-request ceiling. Generous, because a free-tier reasoning model can spend
+# minutes on one whole-chapter generation; the old 180s cap killed those and then
+# retried them (litellm.Timeout used to be retryable), turning one slow call into
+# many. (smolagents/LiteLLM here uses non-streaming generate, so a true streaming
+# idle-timeout — like the openagent harness — isn't available; this is the ceiling.)
+REQUEST_TIMEOUT_S = float(os.environ.get("LEXIS_SMOL_REQUEST_TIMEOUT", "600"))
 MODEL_MAX_RETRIES = int(os.environ.get("LEXIS_SMOL_MODEL_RETRIES", "4"))
 
 
@@ -101,12 +106,16 @@ def make_litellm_model(spec: dict):
         def _with_retry(self, fn, *args, **kwargs):
             import litellm
 
+            # 429 / 5xx / connection blips are transient and worth retrying. A
+            # Timeout is NOT retried: it means the generation exceeded
+            # REQUEST_TIMEOUT_S, and re-running it at the same ceiling just
+            # multiplies the stall — fail once and let the orchestrator's
+            # fail-fast guard handle it.
             retryable = (
                 litellm.RateLimitError,
                 litellm.InternalServerError,
                 litellm.APIConnectionError,
                 litellm.ServiceUnavailableError,
-                litellm.Timeout,
             )
             last: Exception | None = None
             for attempt in range(MODEL_MAX_RETRIES + 1):

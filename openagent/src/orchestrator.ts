@@ -13,7 +13,7 @@
  */
 import fs from 'node:fs';
 import {
-  generateText,
+  streamText,
   stepCountIs,
   type ModelMessage,
   type StepResult,
@@ -182,7 +182,7 @@ export class OrchestratorSession {
 
     try {
       const { model, modelId, settings } = this.factory.resolve('orchestrator', 'orchestrator');
-      const result = await generateText({
+      const result = streamText({
         model,
         system: orchestratorPrompt(project.meta),
         messages: this.history,
@@ -213,7 +213,11 @@ export class OrchestratorSession {
         ...settings,
       });
 
-      this.history.push(...(result.response.messages as ModelMessage[]));
+      // Awaiting result.text drives the stream to completion (firing onStepFinish
+      // and prepareStep along the way); result.response is resolved by then.
+      const finalText = (await result.text)?.trim();
+      const response = await result.response;
+      this.history.push(...(response.messages as ModelMessage[]));
       // Injected messages were seen mid-run via prepareStep; keep their content
       // in the persisted transcript for future turns (position approximated).
       for (const text of injected) {
@@ -221,7 +225,6 @@ export class OrchestratorSession {
         this.history.push({ role: 'assistant', content: '(acknowledged mid-run)' });
       }
 
-      const finalText = result.text?.trim();
       if (finalText) project.emit('agent_text', 'orchestrator', { text: finalText });
     } catch (error) {
       if (this.abortReason) {
