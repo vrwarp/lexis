@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { simulateReadableStream } from 'ai';
 
 process.env.LEXIS_OA_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lexis-oa-test-'));
 
@@ -152,17 +153,23 @@ class MockModel {
     readonly modelId: string,
     private script: (step: number) => Content[],
   ) {}
-  async doGenerate(_options: unknown) {
+  async doStream(_options: unknown) {
     const content = this.script(this.step++);
-    return {
-      content,
-      finishReason: content.some(c => c.type === 'tool-call') ? ('tool-calls' as const) : ('stop' as const),
-      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
-      warnings: [],
-    };
-  }
-  async doStream(): Promise<never> {
-    throw new Error('not used');
+    const parts: Record<string, unknown>[] = [{ type: 'stream-start', warnings: [] }];
+    let id = 0;
+    for (const c of content) {
+      if (c.type === 'text') {
+        const tid = String(id++);
+        parts.push({ type: 'text-start', id: tid });
+        parts.push({ type: 'text-delta', id: tid, delta: c.text });
+        parts.push({ type: 'text-end', id: tid });
+      } else if (c.type === 'tool-call') {
+        parts.push({ type: 'tool-call', toolCallId: c.toolCallId, toolName: c.toolName, input: c.input });
+      }
+    }
+    const finishReason = content.some(c => c.type === 'tool-call') ? 'tool-calls' : 'stop';
+    parts.push({ type: 'finish', finishReason, usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 } });
+    return { stream: simulateReadableStream({ chunks: parts as never }) };
   }
 }
 

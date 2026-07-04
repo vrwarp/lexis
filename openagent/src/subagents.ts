@@ -5,7 +5,7 @@
  * agent's file tools and a fresh message array per invocation (the analogue
  * of the Claude SDK's Task and smolagents' managed agents).
  */
-import { generateText, stepCountIs, tool, type StepResult, type Tool, type ToolSet } from 'ai';
+import { streamText, stepCountIs, tool, type StepResult, type Tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import type { ModelFactory } from './config.js';
 import { describeError } from './diagnostics.js';
@@ -64,9 +64,13 @@ export function buildSubagentTools(
           description: String(task).slice(0, 300),
         });
         const before = snapshotWorkspace(workspace);
-        const runOnce = () => {
+        // streamText (not generateText): the response streams token-by-token, so
+        // the resilient fetch's idle timeout keeps a slow reasoning generation
+        // alive as long as it is producing output, instead of a hard total-time
+        // cap that kills long reasoning outputs (see diagnostics.ts).
+        const runOnce = async (): Promise<string> => {
           const { model, modelId, settings } = factory.resolve(agent.tier, agent.name);
-          return generateText({
+          const result = streamText({
             model,
             system: registry.finish(agent.name),
             messages: [{ role: 'user', content: task + TASK_REMINDER }],
@@ -80,10 +84,10 @@ export function buildSubagentTools(
             },
             ...settings,
           });
+          return (await result.text)?.trim() ?? '';
         };
         try {
-          let result = await runOnce();
-          let text = result.text?.trim() ?? '';
+          let text = await runOnce();
           let after = snapshotWorkspace(workspace);
           let written = diffWritten(before, after);
           // A run that touched no files AND returned no status text is almost
@@ -92,8 +96,7 @@ export function buildSubagentTools(
           // giving up, so one bad roll of the dice doesn't strand the pipeline.
           if (written.length === 0 && !text) {
             hooks.emit('task_retry', 'orchestrator', { agent: agent.name });
-            result = await runOnce();
-            text = result.text?.trim() ?? '';
+            text = await runOnce();
             after = snapshotWorkspace(workspace);
             written = diffWritten(before, after);
           }
