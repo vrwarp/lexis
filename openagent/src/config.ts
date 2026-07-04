@@ -15,6 +15,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModel } from 'ai';
+import { createResilientFetch } from './diagnostics.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const HARNESS_DIR = path.join(__dirname, '..');
@@ -79,16 +80,20 @@ export class ModelFactory {
     const modelId = spec.model_id;
     if (!modelId) throw new Error(`Tier '${tier}' has no model_id`);
     const apiKey = spec.apiKeyEnv ? process.env[spec.apiKeyEnv] : undefined;
+    // Times out each request and retries 429/5xx with Retry-After backoff — the
+    // free-tier upstreams return 429 constantly, so this is what keeps runs alive.
+    const fetch = createResilientFetch();
     let model: LanguageModel;
     switch (provider) {
       case 'anthropic':
-        model = createAnthropic({ ...(apiKey ? { apiKey } : {}) })(modelId);
+        model = createAnthropic({ fetch, ...(apiKey ? { apiKey } : {}) })(modelId);
         break;
       case 'openai':
-        model = createOpenAI({ ...(apiKey ? { apiKey } : {}) })(modelId);
+        model = createOpenAI({ fetch, ...(apiKey ? { apiKey } : {}) })(modelId);
         break;
       case 'google':
         model = createGoogleGenerativeAI({
+          fetch,
           // @ai-sdk/google reads GOOGLE_GENERATIVE_AI_API_KEY; accept GEMINI_API_KEY too.
           apiKey: apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? process.env.GEMINI_API_KEY,
         })(modelId);
@@ -96,8 +101,9 @@ export class ModelFactory {
       case 'openai-compatible': {
         if (!spec.baseURL) throw new Error(`Tier '${tier}': openai-compatible requires baseURL`);
         model = createOpenAICompatible({
-          name: 'openai-compatible',
+          name: 'openrouter',
           baseURL: spec.baseURL,
+          fetch,
           ...(apiKey ? { apiKey } : {}),
         })(modelId);
         break;
