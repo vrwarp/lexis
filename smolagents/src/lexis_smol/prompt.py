@@ -21,6 +21,8 @@ def orchestrator_instructions(meta: dict[str, Any]) -> str:
 - Target language: {target_language}
 - User-provided context / instructions: {context}
 - Directory layout you maintain: `original/` (extracted source), `notes/` (global context), `draft/` (working translations), `critique/` (native-critique feedback), `final/` (finalized translations), `translated_book.epub` (output).
+- The harness has already extracted `source.epub` into `original/` deterministically, so every content file is present before you begin.
+- **Never assume content-file extensions.** EPUB chapters may be `.xhtml`, `.html`, or `.htm` — this book may differ from what you expect. Do not hardcode a pattern like `*.xhtml` in the tasks you delegate. The exact filenames and reading order come from `notes/contents.json` (produced by `toc_generator` from the OPF spine); until it exists, tell agents to discover files by listing `original/`, not by guessing an extension.
 
 # Core mandate: sequential processing
 **DO NOT BATCH CHAPTERS.** To maintain narrative continuity and lexical integrity — and to prevent overwhelming the subagents' context — chapters must be processed **one at a time** within their respective stages:
