@@ -1,0 +1,31 @@
+{
+  "//": "Model tier configuration for the open-agent harness. Tiers follow docs/LESSONS.md: the strong model does the actual translation, the cheap model does everything else. provider: anthropic | openai | google | openai-compatible (the @ai-sdk/* packages open-agent itself builds on). openai-compatible needs baseURL and covers Ollama, vLLM, LM Studio, OpenRouter, DeepSeek, Groq, etc. apiKeyEnv names the environment variable holding the key (defaults per provider). Extra keys: maxOutputTokens, temperature.",
+  "tiers": {
+    "translation": {
+      "provider": "anthropic",
+      "model_id": "claude-opus-4-1",
+      "maxOutputTokens": 32000
+    },
+    "mechanical": {
+      "provider": "anthropic",
+      "model_id": "claude-sonnet-4-5",
+      "maxOutputTokens": 16000
+    },
+    "orchestrator": {
+      "tier": "mechanical"
+    }
+  },
+  "agent_overrides": {
+    "//": "Per-agent experiments, e.g. \"stray_phrase_detector\": {\"provider\": \"google\", \"model_id\": \"gemini-2.5-flash\"}"
+  },
+  "pricing": {
+    "//": "$/MTok fallback used for cost display: {\"substring-of-model-id\": {\"in\": X, \"out\": Y}}",
+    "claude-opus": { "in": 5, "out": 25 },
+    "claude-sonnet": { "in": 3, "out": 15 },
+    "claude-haiku": { "in": 1, "out": 5 },
+    "gemini-2.5-pro": { "in": 1.25, "out": 10 },
+    "gemini-2.5-flash": { "in": 0.3, "out": 2.5 },
+    "gpt-5": { "in": 1.25, "out": 10 },
+    "deepseek": { "in": 0.6, "out": 1.7 }
+  }
+}
