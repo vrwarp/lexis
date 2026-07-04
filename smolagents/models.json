@@ -1,31 +1,35 @@
 {
-  "//": "Model tier configuration. Tiers follow docs/LESSONS.md: the strong model does the actual translation, the cheap model does everything else. Swap providers freely — that is the point of this harness. provider: litellm (default, use '<provider>/<model>' ids), openai (any OpenAI-compatible api_base), or inference_client (HF Inference Providers). Extra keys are passed to the model constructor (temperature, max_tokens, api_base, ...).",
+  "//": "OpenRouter free-tier configuration. Tiers follow docs/LESSONS.md: the strongest MULTILINGUAL model does the actual translation, cheaper reliable tool-callers do everything else. All three are :free models with function calling (mandatory — every agent drives file tools) and are instruct-tuned (not reasoning models, avoiding the leaked-reasoning failure in LESSONS.md #4). smolagents reaches OpenRouter through LiteLLM: model ids are prefixed with 'openrouter/' and the key is read from OPENROUTER_API_KEY. Get a key at https://openrouter.ai/keys.",
+  "//limits": "Free models are rate-limited to ~20 requests/min and ~200 requests/day PER MODEL. A full-book run makes far more calls than that, so the free tier is for testing / small books; the three tiers use three different models partly to spread that daily quota. For real books, swap in paid models (see the commented Anthropic block below) or add OpenRouter credits to raise the limits.",
   "tiers": {
     "translation": {
       "provider": "litellm",
-      "model_id": "anthropic/claude-opus-4-1",
-      "max_tokens": 32000
+      "model_id": "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
+      "max_tokens": 16000
     },
     "mechanical": {
       "provider": "litellm",
-      "model_id": "anthropic/claude-sonnet-4-5",
-      "max_tokens": 16000
+      "model_id": "openrouter/openai/gpt-oss-120b:free",
+      "max_tokens": 8000
     },
     "orchestrator": {
-      "tier": "mechanical"
+      "provider": "litellm",
+      "model_id": "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+      "max_tokens": 8000
+    },
+    "//anthropic-alternative": {
+      "translation": { "provider": "litellm", "model_id": "anthropic/claude-opus-4-1", "max_tokens": 32000 },
+      "mechanical": { "provider": "litellm", "model_id": "anthropic/claude-sonnet-4-5", "max_tokens": 16000 },
+      "orchestrator": { "tier": "mechanical" }
     }
   },
   "agent_overrides": {
-    "//": "Per-agent experiments, e.g. \"stray-phrase-detector\": {\"model_id\": \"gemini/gemini-2.5-flash\"} — keys here override the agent's tier spec."
+    "//": "Per-agent experiments, e.g. \"stray-phrase-detector\": {\"model_id\": \"openrouter/google/gemma-4-31b-it:free\"} — keys here override the agent's tier spec. Other strong free tool-callers: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free (1M ctx), openrouter/qwen/qwen3-coder:free (1M ctx), openrouter/google/gemma-4-31b-it:free (140+ languages)."
   },
   "pricing": {
-    "//": "Fallback $/MTok when litellm cannot price a response: {\"substring-of-model-id\": {\"in\": X, \"out\": Y}}",
+    "//": "$/MTok fallback for cost display. The :free models above cost $0; LiteLLM reports $0 (or unknown → $0) for them, so no entries are needed here. These entries apply if you swap in paid models.",
     "claude-opus": { "in": 5, "out": 25 },
     "claude-sonnet": { "in": 3, "out": 15 },
-    "claude-haiku": { "in": 1, "out": 5 },
-    "gemini-2.5-pro": { "in": 1.25, "out": 10 },
-    "gemini-2.5-flash": { "in": 0.3, "out": 2.5 },
-    "gpt-5": { "in": 1.25, "out": 10 },
-    "deepseek": { "in": 0.6, "out": 1.7 }
+    "claude-haiku": { "in": 1, "out": 5 }
   }
 }

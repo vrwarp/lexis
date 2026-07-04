@@ -30,17 +30,32 @@ bounded.
 
 ## Model tiers
 
-| Tier | Default | Agents |
-|---|---|---|
-| `translation` | `anthropic/claude-opus-4-1` | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
-| `mechanical` | `anthropic/claude-sonnet-4-5` | orchestrator + the other 10 agents |
+The default [`models.json`](models.json) uses **OpenRouter free models** (all `:free`,
+all tool-capable, all instruct-tuned):
 
-Edit [`models.json`](models.json) (or point `LEXIS_SMOL_MODELS` at your own file) to swap
-providers — LiteLLM ids like `gemini/gemini-2.5-pro`, `openai/gpt-5`,
-`deepseek/deepseek-chat`, `openrouter/qwen/qwen3-235b-a22b`, `ollama_chat/qwen3:32b`, or
+| Tier | Default (free) | Agents |
+|---|---|---|
+| `translation` | `qwen/qwen3-next-80b-a3b-instruct:free` — best free multilingual model (esp. CJK), 262K ctx | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
+| `mechanical` | `openai/gpt-oss-120b:free` — reliable tool-caller, 131K ctx | the other 10 agents |
+| `orchestrator` | `meta-llama/llama-3.3-70b-instruct:free` — reliable high-volume tool-calling | the orchestrator |
+
+The strongest multilingual model sits on `translation` per [`../docs/LESSONS.md`](../docs/LESSONS.md)
+#1; the three tiers use three different models partly to spread OpenRouter's per-model
+free quota (see below). Get a key at <https://openrouter.ai/keys> and set
+`OPENROUTER_API_KEY`.
+
+> **Free-tier limits:** OpenRouter free models are capped at ~20 requests/min and
+> ~200 requests/day *per model*. A full-book run makes many more calls than that, so the
+> free tier is for testing / small books. For real books, add OpenRouter credits (raises
+> the limits) or swap in paid models — the file ships a commented `//anthropic-alternative`
+> block (Opus for translation, Sonnet for the rest) you can lift into place.
+
+Swap providers freely — LiteLLM ids like `gemini/gemini-2.5-pro`, `openai/gpt-5`,
+`deepseek/deepseek-chat`, `openrouter/<any-model>`, `ollama_chat/qwen3:32b`, or
 `provider: "openai"` with an `api_base` for any OpenAI-compatible server. Per-agent
-overrides go in `agent_overrides`. Set the matching API key(s) in the environment
-(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN`, …).
+overrides go in `agent_overrides`. Point `LEXIS_SMOL_MODELS` at your own file to override
+the default. Set the matching API key(s) in the environment (`OPENROUTER_API_KEY`,
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN`, …).
 
 Agent definitions live in [`agents/`](agents/) — same frontmatter-plus-prompt files as the
 other harnesses (`model:` names a tier, `tools:` names file tools). Bodies are verbatim
@@ -51,7 +66,9 @@ from `claude/agents/`.
 ```sh
 cd smolagents
 pip install -r requirements.txt
-ANTHROPIC_API_KEY=sk-ant-... ./run.sh     # http://localhost:4701
+OPENROUTER_API_KEY=sk-or-... ./run.sh     # http://localhost:4701 (free-model default)
+# or, with paid Anthropic tiers swapped into models.json:
+# ANTHROPIC_API_KEY=sk-ant-... ./run.sh
 ```
 
 `PORT` overrides the port; `LEXIS_SMOL_DATA_DIR` overrides where projects are stored

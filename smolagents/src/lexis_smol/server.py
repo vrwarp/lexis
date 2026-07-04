@@ -337,14 +337,15 @@ app.mount("/", StaticFiles(directory=HARNESS_DIR / "public", html=True), name="s
 def main() -> None:
     import uvicorn
 
-    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "HF_TOKEN"):
+    for var in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "HF_TOKEN"):
         if os.environ.get(var):
             break
     else:
         print(
             "note: no provider API key detected in the environment "
-            "(ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / HF_TOKEN / …). "
-            "Configure whichever provider your models.json tiers reference."
+            "(OPENROUTER_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / HF_TOKEN / …). "
+            "The default models.json uses OpenRouter free models — set OPENROUTER_API_KEY "
+            "(https://openrouter.ai/keys), or configure whichever provider your tiers reference."
         )
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
 
