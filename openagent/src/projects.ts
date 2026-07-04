@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { generateContents } from './epub.js';
 import type { ProjectMeta, ProjectStatus, UiEvent, UiEventType } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -149,6 +150,9 @@ export function createProject(input: {
   try {
     fs.mkdirSync(path.join(project.workspace, 'original'), { recursive: true });
     execFileSync('unzip', ['-o', '-qq', 'source.epub', '-d', 'original'], { cwd: project.workspace });
+    // Reading order + titles are a mechanical OPF-spine parse; produce them in
+    // code so the toc_verifier agent never has to hand-parse the OPF.
+    generateContents(project.workspace);
   } catch {
     // a malformed EPUB will surface via the disbinder's verification
   }

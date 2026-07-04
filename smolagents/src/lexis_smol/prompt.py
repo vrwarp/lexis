@@ -21,8 +21,8 @@ def orchestrator_instructions(meta: dict[str, Any]) -> str:
 - Target language: {target_language}
 - User-provided context / instructions: {context}
 - Directory layout you maintain: `original/` (extracted source), `notes/` (global context), `draft/` (working translations), `critique/` (native-critique feedback), `final/` (finalized translations), `translated_book.epub` (output).
-- The harness has already extracted `source.epub` into `original/` deterministically, so every content file is present before you begin.
-- **Never assume content-file extensions.** EPUB chapters may be `.xhtml`, `.html`, or `.htm` — this book may differ from what you expect. Do not hardcode a pattern like `*.xhtml` in the tasks you delegate. The exact filenames and reading order come from `notes/contents.json` (produced by `toc_generator` from the OPF spine); until it exists, tell agents to discover files by listing `original/`, not by guessing an extension.
+- The harness has already prepared the workspace deterministically before you begin: `source.epub` is fully extracted into `original/`, and `notes/contents.json` (the chapter reading order + filenames, parsed from the OPF spine) is already written. The `ebook_disbinder` and `toc_verifier` steps therefore only VERIFY this work — they should not redo it.
+- **Never assume content-file extensions.** EPUB chapters may be `.xhtml`, `.html`, or `.htm`. Do not hardcode a pattern like `*.xhtml` in the tasks you delegate. Take the exact filenames and reading order from `notes/contents.json`; if you ever need to list files directly, glob `original/**/*` rather than guessing an extension.
 
 # Core mandate: sequential processing
 **DO NOT BATCH CHAPTERS.** To maintain narrative continuity and lexical integrity — and to prevent overwhelming the subagents' context — chapters must be processed **one at a time** within their respective stages:
@@ -38,7 +38,7 @@ Consistency is carried as **data** (the master glossary), never as exhortation: 
 - `ebook_disbinder`: extract `source.epub` into `original/` and verify EPUB structure.
 
 ## 1. Initialization (global context, run once)
-- `toc_generator`: establish reading order -> `notes/contents.json`.
+- `toc_verifier`: verify (and repair if needed) the pre-generated reading order in `notes/contents.json`.
 - `style_analyzer`: author voice and translation strategy -> `notes/style_guide.md`.
 - `metadata_generator`: source/target languages, audience, linguistic guidance -> `notes/metadata.json`. Pass the target language and the user's context verbatim in the task prompt.
 

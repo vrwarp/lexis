@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import multer from 'multer';
 import { WebSocketServer, WebSocket } from 'ws';
-import { coverMime, extractEpub, replaceCover } from './epub.js';
+import { coverMime, extractEpub, generateContents, replaceCover } from './epub.js';
 import { peekSession, sessionFor } from './orchestrator.js';
 import { createProject, getProject, listProjects, type Project } from './projects.js';
 import { listVersions, revertToVersion, saveVersion } from './versioning.js';
@@ -104,11 +104,10 @@ app.post(
     if (fs.existsSync(source)) {
       try {
         const count = await extractEpub(source, path.join(project.workspace, 'original'));
-        project.emit('progress', 'orchestrator', {
-          phase: 'preparation',
-          state: 'started',
-          detail: `Extracted ${count} source files into original/`,
-        });
+        const chapters = generateContents(project.workspace);
+        let detail = `Extracted ${count} source files into original/`;
+        if (chapters) detail += `; wrote notes/contents.json (${chapters} chapters, from the OPF spine)`;
+        project.emit('progress', 'orchestrator', { phase: 'preparation', state: 'started', detail });
       } catch (error) {
         project.emit('error', 'orchestrator', { message: `Deterministic EPUB extraction failed: ${String(error)}` });
       }

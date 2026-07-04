@@ -8,12 +8,16 @@ uncompressed.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 import tempfile
 import urllib.parse
 import zipfile
 from pathlib import Path
+
+CONTENT_MEDIA_TYPES = ("application/xhtml+xml", "text/html")
 
 IMAGE_MIME = {
     ".jpg": "image/jpeg",
@@ -52,6 +56,121 @@ def extract_epub(epub_path: Path, dest: Path) -> int:
             with zf.open(info) as src, open(target, "wb") as out:
                 shutil.copyfileobj(src, out)
     return sum(1 for p in dest.rglob("*") if p.is_file())
+
+
+def _opf_path(original: Path) -> Path | None:
+    """Locate the OPF package document via META-INF/container.xml."""
+    container = original / "META-INF" / "container.xml"
+    if not container.exists():
+        return None
+    m = re.search(r'full-path="([^"]+)"', container.read_text(encoding="utf-8", errors="replace"))
+    if not m:
+        return None
+    opf = (original / urllib.parse.unquote(m.group(1))).resolve()
+    return opf if opf.exists() else None
+
+
+def _titles_from_nav(opf: str, opf_dir: Path, manifest: dict[str, tuple[str, str]]) -> dict[str, str]:
+    """Map content-file basename -> chapter title, from the NCX or nav document."""
+    titles: dict[str, str] = {}
+    # EPUB2 NCX: <navPoint><navLabel><text>Title</text></navLabel><content src="href"/>
+    ncx_href = next((h for h, mt in manifest.values() if mt == "application/x-dtbncx+xml"), None)
+    if not ncx_href:
+        ncx_href = next((h for h, _ in manifest.values() if h.lower().endswith(".ncx")), None)
+    if ncx_href:
+        ncx_file = (opf_dir / ncx_href).resolve()
+        if ncx_file.exists():
+            ncx = ncx_file.read_text(encoding="utf-8", errors="replace")
+            for point in re.findall(r"<navPoint\b.*?</navPoint>", ncx, re.S):
+                label = re.search(r"<text\b[^>]*>(.*?)</text>", point, re.S)
+                src = re.search(r'<content\b[^>]*src="([^"#]+)', point)
+                if label and src:
+                    titles.setdefault(os.path.basename(urllib.parse.unquote(src.group(1))), _clean(label.group(1)))
+    # EPUB3 nav document: <a href="href">Title</a> inside the toc nav.
+    nav_href = next((h for h, mt in manifest.values() if mt in CONTENT_MEDIA_TYPES and "nav" in h.lower()), None)
+    if nav_href:
+        nav_file = (opf_dir / nav_href).resolve()
+        if nav_file.exists():
+            nav = nav_file.read_text(encoding="utf-8", errors="replace")
+            for href, text in re.findall(r'<a\b[^>]*href="([^"#]+)[^"]*"[^>]*>(.*?)</a>', nav, re.S):
+                titles.setdefault(os.path.basename(urllib.parse.unquote(href)), _clean(text))
+    return titles
+
+
+def _file_title(path: Path) -> str | None:
+    """Fallback title from a content file's <title> or first heading."""
+    if not path.exists():
+        return None
+    head = path.read_text(encoding="utf-8", errors="replace")[:4000]
+    for pattern in (r"<title\b[^>]*>(.*?)</title>", r"<h1\b[^>]*>(.*?)</h1>", r"<h2\b[^>]*>(.*?)</h2>"):
+        m = re.search(pattern, head, re.S | re.I)
+        if m:
+            title = _clean(m.group(1))
+            if title:
+                return title
+    return None
+
+
+def _clean(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", text)).strip()
+
+
+def generate_contents(workspace: Path) -> int:
+    """Write a BASELINE notes/contents.json (reading order + titles) from the OPF
+    spine. Parsing the spine is a mechanical task the LLM toc_verifier does
+    unreliably by hand, so we do it in code (docs/LESSONS.md #4). This is only a
+    baseline, though: it is only as good as the book's own OPF annotation, so the
+    toc_verifier agent still verifies it against the actual files and may
+    override it for poorly-annotated books. Returns the number of chapters
+    written, or 0 if there is no usable OPF (the agent builds it from scratch)."""
+    workspace = Path(workspace)
+    original = workspace / "original"
+    opf_file = _opf_path(original)
+    if opf_file is None:
+        return 0
+    opf = opf_file.read_text(encoding="utf-8", errors="replace")
+    opf_dir = opf_file.parent
+
+    manifest: dict[str, tuple[str, str]] = {}
+    for tag in re.findall(r"<item\b[^>]*>", opf):
+        tid, href = _attr(tag, "id"), _attr(tag, "href")
+        if tid and href:
+            manifest[tid] = (urllib.parse.unquote(href), _attr(tag, "media-type") or "")
+
+    spine_match = re.search(r"<spine\b[^>]*>(.*?)</spine>", opf, re.S)
+    if not spine_match:
+        return 0
+    ordered_hrefs: list[str] = []
+    for tag in re.findall(r"<itemref\b[^>]*>", spine_match.group(1)):
+        if _attr(tag, "linear") == "no":
+            continue
+        idref = _attr(tag, "idref")
+        if not idref or idref not in manifest:
+            continue
+        href, media = manifest[idref]
+        if media and media not in CONTENT_MEDIA_TYPES:
+            continue
+        ordered_hrefs.append(href)
+    if not ordered_hrefs:
+        return 0
+
+    titles = _titles_from_nav(opf, opf_dir, manifest)
+    root = original.resolve()
+    contents = []
+    for index, href in enumerate(ordered_hrefs, start=1):
+        abs_path = (opf_dir / href).resolve()
+        try:
+            filename = abs_path.relative_to(root).as_posix()
+        except ValueError:
+            filename = os.path.basename(href)
+        base = os.path.basename(href)
+        title = titles.get(base) or _file_title(abs_path) or os.path.splitext(base)[0]
+        contents.append({"index": index, "filename": filename, "title": title})
+
+    notes = workspace / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "contents.json").write_text(json.dumps(contents, ensure_ascii=False, indent=2), encoding="utf-8")
+    return len(contents)
 
 
 def _attr(tag: str, name: str) -> str | None:
