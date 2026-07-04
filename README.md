@@ -7,9 +7,10 @@ The pipeline exists in two harnesses:
 | Harness | Location | Description |
 |---|---|---|
 | **Claude Agent SDK** | [`claude/`](claude/) | A web application built on `@anthropic-ai/claude-agent-sdk`. An orchestrator agent (interactive via a rich web UI) drives the 14 pipeline subagents. Opus handles the actual translation work; Sonnet handles everything else. Includes translation versioning with revert, a pre-packaging review gate, and optional custom-cover repackaging. |
+| **smolagents** | [`smolagents/`](smolagents/) | The same pipeline, web UI, and harness contract ported to Hugging Face [smolagents](https://github.com/huggingface/smolagents) to diversify the models: every tier is a config entry that can point at any provider (Anthropic, OpenAI, Gemini, DeepSeek, HF Inference, local, …). Design and capability mapping in [`docs/SMOLAGENTS_ANALYSIS.md`](docs/SMOLAGENTS_ANALYSIS.md). |
 | **opencode** | [`opencode/`](opencode/) | The original agent definitions and `translate-pipeline` skill for the opencode harness, preserved as-is. Run opencode with `opencode/` as the project root. |
 
-Both harnesses implement the same pipeline design. See [`docs/LESSONS.md`](docs/LESSONS.md) for the history of what was tried, reverted, and why — the current design is the last known good state.
+All harnesses implement the same pipeline design. See [`docs/LESSONS.md`](docs/LESSONS.md) for the history of what was tried, reverted, and why — the current design is the last known good state.
 
 ## Pipeline overview
 
