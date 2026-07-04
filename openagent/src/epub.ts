@@ -45,6 +45,41 @@ export async function extractEpub(epubPath: string, dest: string): Promise<numbe
 
 const CONTENT_MEDIA_TYPES = new Set(['application/xhtml+xml', 'text/html']);
 
+/** Raised by validateEpub when an extracted EPUB cannot be translated. */
+export class EpubError extends Error {}
+
+/**
+ * Deterministic sanity checks on the freshly-extracted EPUB. Throws EpubError on
+ * a fatal problem (DRM, or no reachable package document); returns a list of
+ * non-fatal warnings.
+ *
+ * This is the in-code replacement for the LLM ebook_disbinder's "verification":
+ * extractEpub already guarantees every archive entry is on disk, and structural
+ * validity is a purely mechanical check that must not depend on a model
+ * (docs/LESSONS.md #4). Doing it here is certain, free, and cannot spin.
+ */
+export function validateEpub(workspace: string): string[] {
+  const original = path.join(workspace, 'original');
+  if (fs.existsSync(path.join(original, 'META-INF', 'encryption.xml'))) {
+    throw new EpubError(
+      'The EPUB appears to be DRM-protected (META-INF/encryption.xml is present); its content is encrypted and cannot be translated.',
+    );
+  }
+  if (!opfPath(original)) {
+    throw new EpubError(
+      'This does not look like a valid EPUB: no package document (.opf) is reachable from META-INF/container.xml.',
+    );
+  }
+  const warnings: string[] = [];
+  const mimetype = path.join(original, 'mimetype');
+  if (!fs.existsSync(mimetype)) {
+    warnings.push('mimetype file is missing');
+  } else if (fs.readFileSync(mimetype, 'utf8').trim() !== 'application/epub+zip') {
+    warnings.push("mimetype is not 'application/epub+zip'");
+  }
+  return warnings;
+}
+
 function attrOf(tag: string, name: string): string | undefined {
   return tag.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1];
 }

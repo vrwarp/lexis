@@ -163,7 +163,9 @@ def create_project(
         # in code so the toc_verifier agent never has to hand-parse the OPF.
         generate_contents(project.workspace)
     except Exception:
-        pass  # a malformed EPUB will surface via the disbinder's verification
+        # best-effort at creation (populates original/ for the file browser); a
+        # malformed EPUB is authoritatively caught in code by validate_epub at /start
+        pass
     # The workspace is a git repository: that is the versioning mechanism.
     git = lambda *args: subprocess.run(["git", *args], cwd=project.workspace, check=True, capture_output=True)
     git("init", "-q")

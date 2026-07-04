@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import multer from 'multer';
 import { WebSocketServer, WebSocket } from 'ws';
-import { coverMime, extractEpub, generateContents, replaceCover } from './epub.js';
+import { coverMime, extractEpub, generateContents, replaceCover, validateEpub } from './epub.js';
 import { peekSession, sessionFor } from './orchestrator.js';
 import { createProject, getProject, listProjects, type Project } from './projects.js';
 import { listVersions, revertToVersion, saveVersion } from './versioning.js';
@@ -102,21 +102,32 @@ app.post(
     // partial extraction. The source is immutable, so this is safe/idempotent.
     const source = path.join(project.workspace, 'source.epub');
     if (fs.existsSync(source)) {
+      // Preparation is fully mechanical: extract, validate, and parse the reading
+      // order in code (no LLM ebook_disbinder). The source is immutable, so this is
+      // idempotent and also repairs a project whose earlier run left original/ partial.
       try {
         const count = await extractEpub(source, path.join(project.workspace, 'original'));
+        const warnings = validateEpub(project.workspace); // throws EpubError on a fatal problem
         const chapters = generateContents(project.workspace);
         let detail = `Extracted ${count} source files into original/`;
         if (chapters) detail += `; wrote notes/contents.json (${chapters} chapters, from the OPF spine)`;
-        project.emit('progress', 'orchestrator', { phase: 'preparation', state: 'started', detail });
+        if (warnings.length) detail += ` (warnings: ${warnings.join('; ')})`;
+        project.emit('progress', 'orchestrator', { phase: 'preparation', state: 'completed', detail });
       } catch (error) {
-        project.emit('error', 'orchestrator', { message: `Deterministic EPUB extraction failed: ${String(error)}` });
+        // A malformed/DRM'd/corrupt EPUB is surfaced here, in code — not left for a
+        // model to notice. Stop before wasting a pipeline run on unusable input.
+        const message = `Preparation failed: ${error instanceof Error ? error.message : String(error)}`;
+        project.emit('progress', 'orchestrator', { phase: 'preparation', state: 'failed', detail: message });
+        project.setStatus('error', message);
+        res.status(422).json({ ok: false, error: message });
+        return;
       }
     }
     const session = sessionFor(project);
     session.send(
       `Begin the translation of source.epub into ${project.meta.targetLanguage}. ` +
         (project.meta.context ? `User context: ${project.meta.context}. ` : '') +
-        `Run the full pipeline from Preparation onward. If the workspace already contains partial pipeline output (original/, notes/, draft/, final/), assess what is already done and continue from there instead of redoing completed work.`,
+        `Preparation is already complete: the harness has extracted and validated source.epub into original/ and written notes/contents.json (the reading order). Run the pipeline from Initialization onward (toc_verifier, then style_analyzer, metadata_generator, then per-chapter extraction and production). If the workspace already contains partial pipeline output (notes/, draft/, final/), assess what is already done and continue from there instead of redoing completed work.`,
     );
     res.json({ ok: true });
   }),
