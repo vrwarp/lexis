@@ -30,17 +30,44 @@ bounded.
 
 ## Model tiers
 
-| Tier | Default | Agents |
-|---|---|---|
-| `translation` | `anthropic/claude-opus-4-1` | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
-| `mechanical` | `anthropic/claude-sonnet-4-5` | orchestrator + the other 10 agents |
+The default [`models.json`](models.json) uses **OpenRouter free models** (all `:free`,
+all tool-capable, all instruct-tuned):
 
-Edit [`models.json`](models.json) (or point `LEXIS_SMOL_MODELS` at your own file) to swap
-providers — LiteLLM ids like `gemini/gemini-2.5-pro`, `openai/gpt-5`,
-`deepseek/deepseek-chat`, `openrouter/qwen/qwen3-235b-a22b`, `ollama_chat/qwen3:32b`, or
+| Tier | Default (free) | Agents |
+|---|---|---|
+| `translation` | `qwen/qwen3-next-80b-a3b-instruct:free` — best free multilingual model (esp. CJK), 262K ctx | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
+| `mechanical` | `openai/gpt-oss-120b:free` — reliable tool-caller, 131K ctx | the other 10 agents |
+| `orchestrator` | `meta-llama/llama-3.3-70b-instruct:free` — reliable high-volume tool-calling | the orchestrator |
+
+The strongest multilingual model sits on `translation` per [`../docs/LESSONS.md`](../docs/LESSONS.md)
+#1 — that tier split is about translation quality, not quota. Get a key at
+<https://openrouter.ai/keys> and set `OPENROUTER_API_KEY`.
+
+> **Free-tier limits & how much a book costs.** OpenRouter's free (`:free`) models share an
+> **account-wide** daily request cap — **50 requests/day** by default, raised to **1,000/day**
+> once you've bought a small credit balance (~$10) — plus a short-term limit of roughly 20
+> requests/minute. The daily cap counts all free models together, so using three tiers does
+> **not** stretch it.
+>
+> A full novel is request-heavy: the orchestrator and every subagent are step-by-step
+> tool-calling loops, so a ~100k-word, ~15-chapter book (e.g. *Ender's Game*) runs on the order
+> of **~1,000 requests** end-to-end (the per-chapter draft/omission, stray-phrase, critique, and
+> finalize passes dominate). That maps to:
+> - **50 RPD** → roughly a chapter's worth of pipeline per day; a whole novel takes a couple of
+>   weeks. **That's perfectly fine if you're not in a hurry** — the workspace is checkpointed in
+>   git and the orchestrator resumes across restarts, so you can run a little each day and pick
+>   up where you left off.
+> - **1,000 RPD** (after the deposit) → a full book in a day or two.
+> - **Paid models** — lift the commented `//anthropic-alternative` block into `models.json` — have
+>   no daily cap; a full book runs a few dollars. Best for translating a book start-to-finish in
+>   one sitting; keep the free config for smoke-testing a chapter or two.
+
+Swap providers freely — LiteLLM ids like `gemini/gemini-2.5-pro`, `openai/gpt-5`,
+`deepseek/deepseek-chat`, `openrouter/<any-model>`, `ollama_chat/qwen3:32b`, or
 `provider: "openai"` with an `api_base` for any OpenAI-compatible server. Per-agent
-overrides go in `agent_overrides`. Set the matching API key(s) in the environment
-(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN`, …).
+overrides go in `agent_overrides`. Point `LEXIS_SMOL_MODELS` at your own file to override
+the default. Set the matching API key(s) in the environment (`OPENROUTER_API_KEY`,
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN`, …).
 
 Agent definitions live in [`agents/`](agents/) — same frontmatter-plus-prompt files as the
 other harnesses (`model:` names a tier, `tools:` names file tools). Bodies are verbatim
@@ -51,7 +78,9 @@ from `claude/agents/`.
 ```sh
 cd smolagents
 pip install -r requirements.txt
-ANTHROPIC_API_KEY=sk-ant-... ./run.sh     # http://localhost:4701
+OPENROUTER_API_KEY=sk-or-... ./run.sh     # http://localhost:4701 (free-model default)
+# or, with paid Anthropic tiers swapped into models.json:
+# ANTHROPIC_API_KEY=sk-ant-... ./run.sh
 ```
 
 `PORT` overrides the port; `LEXIS_SMOL_DATA_DIR` overrides where projects are stored

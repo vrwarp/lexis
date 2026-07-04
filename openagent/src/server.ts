@@ -395,11 +395,12 @@ wss.on('connection', (ws: WebSocket, req) => {
 
 server.listen(PORT, () => {
   console.log(`lexis (open-agent substrate) listening on http://localhost:${PORT}`);
-  const keys = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'GEMINI_API_KEY'];
+  const keys = ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'GEMINI_API_KEY'];
   if (!keys.some((k) => process.env[k])) {
     console.warn(
       'note: no provider API key detected in the environment ' +
-        `(${keys.join(' / ')} / …). Configure whichever provider your models.json tiers reference.`,
+        `(${keys.join(' / ')} / …). The default models.json uses OpenRouter free models — set ` +
+        'OPENROUTER_API_KEY (https://openrouter.ai/keys), or configure whichever provider your tiers reference.',
     );
   }
 });
