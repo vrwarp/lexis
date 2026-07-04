@@ -144,6 +144,14 @@ export function createProject(input: {
   const project = new Project(meta);
   fs.mkdirSync(project.workspace, { recursive: true });
   fs.writeFileSync(path.join(project.workspace, 'source.epub'), input.epubBuffer);
+  // Extract the source deterministically up front so `original/` is always
+  // complete before any agent runs (never trust the LLM to unzip everything).
+  try {
+    fs.mkdirSync(path.join(project.workspace, 'original'), { recursive: true });
+    execFileSync('unzip', ['-o', '-qq', 'source.epub', '-d', 'original'], { cwd: project.workspace });
+  } catch {
+    // a malformed EPUB will surface via the disbinder's verification
+  }
   // The workspace is a git repository: that is the versioning mechanism.
   const git = (...args: string[]) => execFileSync('git', args, { cwd: project.workspace });
   git('init', '-q');

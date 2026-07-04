@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import HARNESS_DIR
-from .epub import cover_mime, replace_cover
+from .epub import cover_mime, extract_epub, replace_cover
 from .orchestrator import peek_session, session_for
 from .projects import Project, create_project, get_project, list_projects
 from .versioning import list_versions, revert_to_version, save_version
@@ -99,6 +99,20 @@ def api_get_events(project_id: str, after: int = 0):
 def api_start(project_id: str):
     project = require_project(project_id)
     meta = project.meta
+    # Deterministically (re)extract the source so `original/` is guaranteed
+    # complete on every run — including projects whose earlier run left a
+    # partial extraction. The source is immutable, so this is safe/idempotent.
+    source = project.workspace / "source.epub"
+    if source.exists():
+        try:
+            count = extract_epub(source, project.workspace / "original")
+            project.emit(
+                "progress",
+                "orchestrator",
+                {"phase": "preparation", "state": "started", "detail": f"Extracted {count} source files into original/"},
+            )
+        except Exception as error:
+            project.emit("error", "orchestrator", {"message": f"Deterministic EPUB extraction failed: {error}"})
     message = (
         f"Begin the translation of source.epub into {meta['targetLanguage']}. "
         + (f"User context: {meta['context']}. " if meta.get("context") else "")

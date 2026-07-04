@@ -20,6 +20,30 @@ export function coverMime(filename: string): string | undefined {
 }
 
 /**
+ * Deterministically and completely extract an EPUB into `dest`.
+ *
+ * Extraction is a purely mechanical operation; doing it in code (rather than
+ * trusting an LLM agent to run `unzip`) guarantees every content file — the
+ * OPF, the spine, images, all of it — actually lands on disk. See
+ * docs/LESSONS.md #4: mechanical integrity must not depend on LLM judgment.
+ * Returns the number of files written.
+ */
+export async function extractEpub(epubPath: string, dest: string): Promise<number> {
+  fs.mkdirSync(dest, { recursive: true });
+  // `unzip -o` extracts the entire archive at once, overwriting — complete and idempotent.
+  await execFileAsync('unzip', ['-o', '-qq', epubPath, '-d', dest]);
+  let count = 0;
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) walk(path.join(dir, entry.name));
+      else count += 1;
+    }
+  };
+  walk(dest);
+  return count;
+}
+
+/**
  * Deterministically replace the cover image inside a built EPUB and re-zip it
  * (mimetype entry first, stored uncompressed, per the OCF spec).
  *

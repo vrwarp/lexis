@@ -29,6 +29,31 @@ def cover_mime(filename: str) -> str | None:
     return IMAGE_MIME.get(Path(filename).suffix.lower())
 
 
+def extract_epub(epub_path: Path, dest: Path) -> int:
+    """Deterministically and completely extract an EPUB into `dest`.
+
+    Extraction is a purely mechanical operation; doing it in code (rather than
+    trusting an LLM agent to run `unzip`) guarantees every content file — the
+    OPF, the spine, images, all of it — actually lands on disk. See
+    docs/LESSONS.md #4: mechanical integrity must not depend on LLM judgment.
+    Returns the number of files written.
+    """
+    epub_path, dest = Path(epub_path), Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    root = dest.resolve()
+    with zipfile.ZipFile(epub_path) as zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            target = (dest / info.filename).resolve()
+            if target != root and root not in target.parents:
+                raise ValueError(f"EPUB entry escapes the destination: {info.filename}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info) as src, open(target, "wb") as out:
+                shutil.copyfileobj(src, out)
+    return sum(1 for p in dest.rglob("*") if p.is_file())
+
+
 def _attr(tag: str, name: str) -> str | None:
     m = re.search(rf'{name}="([^"]*)"', tag)
     return m.group(1) if m else None

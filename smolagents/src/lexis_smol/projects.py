@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .config import DATA_DIR
+from .epub import extract_epub
 
 PROJECTS_DIR = DATA_DIR / "projects"
 
@@ -154,6 +155,12 @@ def create_project(
     project = Project(meta)
     project.workspace.mkdir(parents=True, exist_ok=True)
     (project.workspace / "source.epub").write_bytes(epub_bytes)
+    # Extract the source deterministically up front so `original/` is always
+    # complete before any agent runs (never trust the LLM to unzip everything).
+    try:
+        extract_epub(project.workspace / "source.epub", project.workspace / "original")
+    except Exception:
+        pass  # a malformed EPUB will surface via the disbinder's verification
     # The workspace is a git repository: that is the versioning mechanism.
     git = lambda *args: subprocess.run(["git", *args], cwd=project.workspace, check=True, capture_output=True)
     git("init", "-q")
