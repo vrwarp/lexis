@@ -297,7 +297,10 @@ function renderSpinner() {
 /* ---------------- pipeline board ---------------- */
 
 function shortChapter(chapter) {
-  return chapter.replace(/\.x?html?$/i, '').replace(/^index_split_0*/i, '§');
+  return chapter
+    .replace(/\.x?html?$/i, '')
+    .replace(/^index_split_0*/i, '§')
+    .replace(/^\d{8,}[_-]/, ''); // drop redundant ISBN/book-id prefix (e.g. 9780062077868_Chapter_1)
 }
 
 function renderBoard() {
