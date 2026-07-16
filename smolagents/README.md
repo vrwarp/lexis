@@ -37,8 +37,8 @@ tool-capable, all keeping reasoning in a separate field so it never leaks into o
 
 | Tier | Default (free) | Agents |
 |---|---|---|
-| `translation` | `nvidia/nemotron-3-super-120b-a12b:free` — capable, clean multilingual output, 1M ctx | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
-| `mechanical` | `nvidia/nemotron-3-super-120b-a12b:free` | the other 10 agents |
+| `translation` | `nvidia/nemotron-3-super-120b-a12b:free` — capable, clean multilingual output, 1M ctx | `primary-translator`, `final-translator`, `native-critique`, `critique-charter-generator`, `metadata-generator`, `style-analyzer` |
+| `mechanical` | `nvidia/nemotron-3-super-120b-a12b:free` | the other 8 agents |
 | `orchestrator` | `nvidia/nemotron-3-super-120b-a12b:free` | the orchestrator |
 
 All tiers use Nemotron-Super here because smolagents always calls tools with

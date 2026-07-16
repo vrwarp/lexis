@@ -69,12 +69,18 @@ check('orchestrator prompt renders', orchestratorPrompt(project.meta).includes('
 // ---------- prompt registry ----------
 
 const registry = new PromptRegistry();
-check('13 agent definitions load', registry.names().length === 13, registry.names().join(','));
+check('14 agent definitions load', registry.names().length === 14, registry.names().join(','));
 check(
   'tiers assigned per LESSONS',
-  ['primary_translator', 'final_translator', 'native_critique', 'metadata_generator'].every(
-    n => registry.get(n).tier === 'translation',
-  ) && registry.get('style_analyzer').tier === 'mechanical',
+  [
+    'primary_translator',
+    'final_translator',
+    'native_critique',
+    'critique_charter_generator',
+    'metadata_generator',
+    'style_analyzer',
+  ].every(n => registry.get(n).tier === 'translation') &&
+    registry.get('omission_detector').tier === 'mechanical',
 );
 check('mustache render works', registry.finish('style_analyzer').includes('Style Analyzer'));
 

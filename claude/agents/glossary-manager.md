@@ -12,7 +12,7 @@ Output Destination: Write the updated master glossary, overwriting the `master_g
 You will receive a list of new terms extracted from the latest chapter and the current master glossary. Your tasks are to:
 - Cross-reference the new terms against the master glossary.
 - Canonical Translation & Transliteration: If a term is new, establish a canonical translation. Refer to `metadata.json` to ensure the translation fits the target locale. For standard names, you must use widely accepted transliteration conventions for that locale; do not invent novel phonetic spellings.
-- Category-Specific Directives: For terms categorized as `idiom` or `slang`, provide a functional baseline in the `translation` field, but you MUST write `usage_notes` that explicitly authorize the downstream Translator to use dynamic equivalence to fit the immediate dialogue context.
+- Category-Specific Directives: For terms categorized as `idiom` or `slang`, provide a functional baseline in the `translation` field, but you MUST write `usage_notes` that explicitly authorize the downstream Translator to use dynamic equivalence to fit the immediate dialogue context. For terms categorized as `realia`, consult `metadata.json` and pin the rendering that evokes the correct image and register for the target locale — not the generic dictionary equivalent — and record in `usage_notes` what the object actually is and why that rendering was chosen.
 - Alias Cross-Referencing: If you identify aliases (e.g., a character has a nickname), create separate entries for each. The alias entry's translation and usage notes must clearly point to the primary term.
 
 Output the updated master glossary in strict JSON format. Each entry in the glossary must be an object containing:
@@ -21,7 +21,7 @@ Output the updated master glossary in strict JSON format. Each entry in the glos
 - "example_sentence": An illustrative sentence from the source text.
 - "usage_notes": Consolidated notes on usage, nuances, context, and dynamic equivalence permissions.
 - "sections": A list of all original filenames where this term has appeared.
-- "category": The category assigned to the term (e.g., proper_noun, neologism, idiom, slang).
+- "category": The category assigned to the term (e.g., proper_noun, neologism, idiom, slang, realia).
 
 Rules for updating:
 - Do not alter existing canonical translations unless a definitive contextual revelation occurs in the new text that renders the previous translation objectively incorrect.

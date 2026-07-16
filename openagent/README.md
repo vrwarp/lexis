@@ -37,8 +37,8 @@ reached through OpenRouter's OpenAI-compatible endpoint:
 
 | Tier | Default (free) | Agents |
 |---|---|---|
-| `translation` | `nvidia/nemotron-3-super-120b-a12b:free` — capable + clean multilingual output, 1M ctx | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
-| `mechanical` | `openai/gpt-oss-20b:free` — fast, reliable tool-caller | the other 10 agents |
+| `translation` | `nvidia/nemotron-3-super-120b-a12b:free` — capable + clean multilingual output, 1M ctx | `primary-translator`, `final-translator`, `native-critique`, `critique-charter-generator`, `metadata-generator`, `style-analyzer` |
+| `mechanical` | `openai/gpt-oss-20b:free` — fast, reliable tool-caller | the other 8 agents |
 | `orchestrator` | `nvidia/nemotron-3-super-120b-a12b:free` — capable sequencing over a long conversation | the orchestrator |
 
 The strongest model sits on `translation` per [`../docs/LESSONS.md`](../docs/LESSONS.md) #1;

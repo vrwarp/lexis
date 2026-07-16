@@ -27,18 +27,25 @@ These agents run once at the beginning of a project.
     - **Description**: Scans `original/` to establish reading order.
     - **Dependencies**: None.
     - **Output**: `notes/contents.json`.
-2.  **Style Analyzer (`style-analyzer`)**
-    - **Description**: Defines the author's voice and translation strategy.
-    - **Dependencies**: 
-        - `toc-generator` (`notes/contents.json`)
-        - **Sampled sections** from the `original/` folder.
-    - **Output**: `notes/style_guide.md`.
-3.  **Metadata Generator (`metadata-generator`)**
-    - **Description**: Identifies source/target languages and audience profiles.
+2.  **Metadata Generator (`metadata-generator`)**
+    - **Description**: Identifies source/target languages, audience profiles, register guidance, and the translationese watchlist.
     - **Dependencies**: 
         - `toc-generator` (`notes/contents.json`)
         - **Sampled sections** from the `original/` folder.
     - **Output**: `notes/metadata.json`.
+3.  **Style Analyzer (`style-analyzer`)**
+    - **Description**: Defines the author's voice and a locale-aware translation strategy.
+    - **Dependencies**: 
+        - `toc-generator` (`notes/contents.json`)
+        - `metadata-generator` (`notes/metadata.json`)
+        - **Sampled sections** from the `original/` folder.
+    - **Output**: `notes/style_guide.md`.
+4.  **Critique Charter Generator (`critique-charter-generator`)**
+    - **Description**: Writes the native-language working brief the Native Critique adopts for this project.
+    - **Dependencies**: 
+        - `metadata-generator` (`notes/metadata.json`)
+        - `style-analyzer` (`notes/style_guide.md`)
+    - **Output**: `notes/critique_charter.md`.
 
 ## 2. Extraction Phase (Per-Section)
 Run these agents for each individual file in the `original/` folder.
@@ -102,10 +109,10 @@ Must run after the Extraction Phase for a given section.
 
 ### 4.3. Refinement Stage
 1.  **Native Critique (`native-critique`)**
-    - **Description**: Evaluates the cleaned draft for natural flow and audience alignment.
+    - **Description**: Evaluates the cleaned draft for natural flow and audience alignment (two-phase: monolingual read, then source cross-check).
     - **Dependencies**: 
-        - **Local**: `draft/<filename>` (Post-Validation).
-        - **Global**: `notes/metadata.json`.
+        - **Local**: `draft/<filename>` (Post-Validation), `original/<filename>` (Phase 2 cross-check).
+        - **Global**: `notes/metadata.json`, `notes/critique_charter.md` (if present), `notes/style_guide.md`, `notes/master_glossary.json`.
     - **Output**: `critique/<filename>.critique.md`.
 
 ### 4.4. Finalization Stage
@@ -115,6 +122,18 @@ Must run after the Extraction Phase for a given section.
         - **Local**: `original/<filename>`, `draft/<filename>`, `critique/<filename>.critique.md`, `notes/<filename>.summary.txt`, and `notes/<filename>.challenges.md`.
         - **Global**: `master_glossary.json`, `style_guide.md`, `metadata.json`, `contents.json`.
     - **Output**: `final/<filename>`.
+
+### 4.5. Final Verification Stage (Bounded, One Round)
+1.  **Native Critique (`native-critique`) in verification mode**
+    - **Description**: Gate on the finalized text. Instruct it explicitly to VERIFY `final/<filename>`; it confirms the must-fix critique issues are resolved and flags remaining or newly introduced must-fix defects only.
+    - **Dependencies**: 
+        - **Local**: `final/<filename>`, `critique/<filename>.critique.md`.
+        - **Global**: `notes/metadata.json`, `notes/critique_charter.md` (if present).
+    - **Output**: `critique/<filename>.final_check.md` ending `STATUS: PASS` or `STATUS: ISSUES_FOUND`.
+2.  **Final Translator (`final-translator`)** — only if `STATUS: ISSUES_FOUND`
+    - **Description**: Applies the final-check report to `final/<filename>`. Run at most once; never re-verify the fix.
+    - **Dependencies**: `final/<filename>`, `critique/<filename>.final_check.md`, plus the standard global context.
+    - **Output**: Updates `final/<filename>`.
 
 ## 5. Finalization Phase (Packaging)
 **MANDATORY**: Before executing the `ebook-packager`, the orchestrator MUST present a summary of the project (e.g., file completion status, localized metadata) to the user and obtain explicit confirmation to proceed.

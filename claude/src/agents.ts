@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AGENTS_DIR = path.join(__dirname, '..', 'agents');
 
 /**
- * Load the 14 pipeline subagents from claude/agents/*.md.
+ * Load the 15 pipeline subagents from claude/agents/*.md.
  *
  * Each file carries a small frontmatter block (description, model, tools)
  * followed by the agent's system prompt. Model tiers follow the mapping the
