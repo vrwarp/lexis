@@ -129,8 +129,9 @@ def api_start(project_id: str):
         + (f"User context: {meta['context']}. " if meta.get("context") else "")
         + "Preparation is already complete: the harness has extracted and validated source.epub into "
         "original/ and written notes/contents.json (the reading order). Run the pipeline from "
-        "Initialization onward (toc_verifier, then style_analyzer, metadata_generator, then per-chapter "
-        "extraction and production). If the workspace already contains partial pipeline output "
+        "Initialization onward (toc_verifier, then metadata_generator, style_analyzer, "
+        "critique_charter_generator, then per-chapter extraction and production). If the workspace "
+        "already contains partial pipeline output "
         "(notes/, draft/, final/), assess what is already done and continue from there instead of "
         "redoing completed work."
     )

@@ -16,9 +16,9 @@ To run a translation, load the `translate-pipeline` skill. It defines the full p
 
 ## Subagents
 
-All 14 agents are defined in `.opencode/agents/` and invoked as subagents via the Task tool. The `translate-pipeline` skill documents when to call each one.
+All 15 agents are defined in `.opencode/agents/` and invoked as subagents via the Task tool. The `translate-pipeline` skill documents when to call each one.
 
 | Tier | Model | Agents |
 |---|---|---|
-| Pro | `opencode-go/glm-5.2` | `primary-translator`, `final-translator`, `metadata-generator`, `native-critique` |
-| Flash | `opencode-go/mimo-v2.5` | `ebook-disbinder`, `ebook-packager`, `glossary-manager`, `local-lexicographer`, `narrative-summarizer`, `omission-detector`, `stray-phrase-detector`, `stray-phrase-fixer`, `style-analyzer`, `toc-generator` |
+| Pro | `opencode-go/glm-5.2` | `primary-translator`, `final-translator`, `metadata-generator`, `native-critique`, `critique-charter-generator`, `style-analyzer` |
+| Flash | `opencode-go/mimo-v2.5` | `ebook-disbinder`, `ebook-packager`, `glossary-manager`, `local-lexicographer`, `narrative-summarizer`, `omission-detector`, `stray-phrase-detector`, `stray-phrase-fixer`, `toc-generator` |

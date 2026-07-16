@@ -3,7 +3,7 @@
 A web application that runs the lexis EPUB translation pipeline on the
 [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview). You give
 it an EPUB and a target language/context; an interactive orchestrator agent
-drives the 14 pipeline subagents and hands you back a translated EPUB — after
+drives the 15 pipeline subagents and hands you back a translated EPUB — after
 you've had a chance to review and request another pass.
 
 ## Model tiers
@@ -14,8 +14,8 @@ translation, the cheap model does everything else:
 
 | Tier | Model | Agents |
 |---|---|---|
-| Translation quality | **Opus** | `primary-translator`, `final-translator`, `native-critique`, `metadata-generator` |
-| Mechanical / extraction | **Sonnet** | orchestrator, `ebook-disbinder`, `ebook-packager`, `glossary-manager`, `local-lexicographer`, `narrative-summarizer`, `omission-detector`, `stray-phrase-detector`, `stray-phrase-fixer`, `style-analyzer`, `toc-generator` |
+| Translation quality | **Opus** | `primary-translator`, `final-translator`, `native-critique`, `critique-charter-generator`, `metadata-generator`, `style-analyzer` |
+| Mechanical / extraction | **Sonnet** | orchestrator, `ebook-disbinder`, `ebook-packager`, `glossary-manager`, `local-lexicographer`, `narrative-summarizer`, `omission-detector`, `stray-phrase-detector`, `stray-phrase-fixer`, `toc-generator` |
 
 Agent definitions live in [`agents/`](agents/) as markdown files with a small
 frontmatter (`description`, `model`, `tools`) — the same file-per-agent shape
