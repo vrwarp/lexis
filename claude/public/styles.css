@@ -154,6 +154,7 @@ input:focus, textarea:focus { outline: 1px solid var(--accent); }
   padding: 9px 10px;
   position: relative;
   min-height: 64px;
+  min-width: 0; /* allow grid track to stay 1fr instead of growing to fit nowrap content */
   display: flex;
   flex-direction: column;
 }
