@@ -16,9 +16,9 @@ async function boot(vars: Record<string, string>) {
   process.env = { ...saved, LEXIS_DATA_DIR: dataDir, ...vars };
   return {
     dataDir,
-    env: await import('./env.js'),
-    auth: await import('./auth.js'),
-    agents: await import('./agents.js'),
+    env: await import('../../src/env.js'),
+    auth: await import('../../src/auth.js'),
+    agents: await import('../../src/agents.js'),
   };
 }
 
@@ -76,8 +76,8 @@ describe('app sign-in', () => {
     const first = await boot({});
     const t = first.auth.makeToken();
     vi.resetModules();
-    const env2 = await import('./env.js');
-    const auth2 = await import('./auth.js');
+    const env2 = await import('../../src/env.js');
+    const auth2 = await import('../../src/auth.js');
     expect(env2.env.dataDir).toBe(first.dataDir);
     expect(auth2.verifyToken(t)).toBe(true);
   });

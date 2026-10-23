@@ -1,8 +1,8 @@
 name: Docker publish
 
-# Pushes to Docker Hub only after a merge to main, and only once CI (typecheck, unit tests,
-# build) passed on that commit. The browser tests run in the separate E2E workflow and never
-# hold up a push.
+# Pushes to Docker Hub only after a merge to main, and only once every CI job (typecheck,
+# unit and integration tests, build, Playwright) passed on that merge commit. Pull requests
+# never push: they get the dry run in docker-dry-run.yml.
 #
 # Repository settings needed (Settings > Secrets and variables > Actions):
 #   secret   DOCKERHUB_USERNAME  Docker Hub user name

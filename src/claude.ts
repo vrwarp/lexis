@@ -17,8 +17,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { detectCredential, env } from './env.js';
+import { sdk } from './sdk.js';
 
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 const URL_TIMEOUT_MS = 60_000;
@@ -103,7 +103,7 @@ export async function readAccount(): Promise<Account | null> {
     await new Promise(() => {});
     yield undefined as never;
   })();
-  const q = query({
+  const q = sdk.query({
     prompt: idle as never,
     options: {
       tools: [],
@@ -112,7 +112,7 @@ export async function readAccount(): Promise<Account | null> {
       ...(binary ? { pathToClaudeCodeExecutable: binary } : {}),
       env: claudeEnv(),
     },
-  });
+  }, { tools: [] });
   try {
     const init = await Promise.race([
       q.initializationResult(),

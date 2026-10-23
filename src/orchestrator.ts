@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   createSdkMcpServer,
-  query,
   tool,
   type ModelUsage,
   type Query,
@@ -14,6 +13,7 @@ import { z } from 'zod';
 import { loadAgents } from './agents.js';
 import { claudeEnv, findClaudeBinary } from './claude.js';
 import { env } from './env.js';
+import { sdk } from './sdk.js';
 import type { Project } from './projects.js';
 import { orchestratorPrompt } from './prompt.js';
 import type { ModelUsageTotals, UsageTotals } from './types.js';
@@ -124,7 +124,9 @@ export class OrchestratorSession {
     } as SDKUserMessage);
     this.wakeQueue?.();
     if (!this.running) void this.run();
-    else this.project.setStatus('running');
+    // A message sent while the review gate waits is queued behind it: the
+    // project is still awaiting review, and its banner must stay up.
+    else if (!this.reviewGate) this.project.setStatus('running');
   }
 
   /** Resolve a pending request_review gate with the user's decision. */
@@ -167,133 +169,129 @@ export class OrchestratorSession {
     }
   }
 
-  private mcpServer() {
+  private lexisTools() {
     const project = this.project;
-    return createSdkMcpServer({
-      name: 'lexis',
-      version: '1.0.0',
-      tools: [
-        tool(
-          'report_progress',
-          'Report structured pipeline progress to the user interface. Call whenever a phase or chapter changes state.',
-          {
-            phase: z.enum([
-              'preparation',
-              'initialization',
-              'extraction',
-              'production',
-              'review',
-              'packaging',
-              'done',
-            ]),
-            chapter: z.string().optional().describe('The chapter filename, when chapter-scoped'),
-            state: z.enum(['started', 'completed', 'failed']),
-            detail: z.string().optional(),
-          },
-          async (args) => {
-            project.emit('progress', 'orchestrator', args);
-            return { content: [{ type: 'text' as const, text: 'ok' }] };
-          },
-        ),
-        tool(
-          'save_version',
-          'Snapshot the entire workspace as a named version the user can inspect and revert to.',
-          { label: z.string().describe('Short human-readable label for this version') },
-          async (args) => {
-            const version = await saveVersion(project, args.label);
+    return [
+      tool(
+        'report_progress',
+        'Report structured pipeline progress to the user interface. Call whenever a phase or chapter changes state.',
+        {
+          phase: z.enum([
+            'preparation',
+            'initialization',
+            'extraction',
+            'production',
+            'review',
+            'packaging',
+            'done',
+          ]),
+          chapter: z.string().optional().describe('The chapter filename, when chapter-scoped'),
+          state: z.enum(['started', 'completed', 'failed']),
+          detail: z.string().optional(),
+        },
+        async (args) => {
+          project.emit('progress', 'orchestrator', args);
+          return { content: [{ type: 'text' as const, text: 'ok' }] };
+        },
+      ),
+      tool(
+        'save_version',
+        'Snapshot the entire workspace as a named version the user can inspect and revert to.',
+        { label: z.string().describe('Short human-readable label for this version') },
+        async (args) => {
+          const version = await saveVersion(project, args.label);
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: version
+                  ? `Saved version ${version.id.slice(0, 8)}: ${version.label}`
+                  : 'No changes since the last version; nothing to save.',
+              },
+            ],
+          };
+        },
+      ),
+      tool('list_versions', 'List all saved workspace versions, newest first.', {}, async () => {
+        const versions = await listVersions(project);
+        const text = versions
+          .map((v) => `${v.id.slice(0, 8)}  ${v.date}  ${v.label}${v.auto ? ' (auto)' : ''}`)
+          .join('\n');
+        return { content: [{ type: 'text' as const, text: text || 'No versions yet.' }] };
+      }),
+      tool(
+        'revert_version',
+        'Restore the workspace to a previous version. The current state is snapshotted first, so this is non-destructive.',
+        { id: z.string().describe('Version id (full or abbreviated commit hash)') },
+        async (args) => {
+          const version = await revertToVersion(project, args.id);
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Workspace restored. New version ${version.id.slice(0, 8)}: ${version.label}. Re-read the workspace before continuing.`,
+              },
+            ],
+          };
+        },
+      ),
+      tool(
+        'request_review',
+        'MANDATORY before packaging. Presents your summary to the user and blocks until they approve or send revision instructions. Returns the decision.',
+        {
+          summary: z
+            .string()
+            .describe(
+              'What was translated, glossary/consistency notes, notable challenges, open questions',
+            ),
+        },
+        async (args) => {
+          project.emit('review_request', 'orchestrator', { summary: args.summary });
+          project.setStatus('awaiting_review');
+          const answer = await new Promise<string>((resolve) => {
+            this.reviewGate = { resolve };
+          });
+          return { content: [{ type: 'text' as const, text: answer }] };
+        },
+      ),
+      tool(
+        'mark_complete',
+        'Record that the translated EPUB has been produced. Call exactly once per successful packaging.',
+        {
+          epub_path: z.string().describe('Path to the produced .epub, relative to the project root'),
+          summary: z.string().describe('One-paragraph completion summary for the user'),
+        },
+        async (args) => {
+          const abs = path.resolve(project.workspace, args.epub_path);
+          if (!abs.startsWith(project.workspace)) {
+            return {
+              content: [{ type: 'text' as const, text: 'Path escapes the workspace.' }],
+              isError: true,
+            };
+          }
+          if (!fs.existsSync(abs) || fs.statSync(abs).size < 1024) {
             return {
               content: [
                 {
                   type: 'text' as const,
-                  text: version
-                    ? `Saved version ${version.id.slice(0, 8)}: ${version.label}`
-                    : 'No changes since the last version; nothing to save.',
+                  text: `No plausible EPUB found at ${args.epub_path} — verify packaging actually succeeded.`,
                 },
               ],
+              isError: true,
             };
-          },
-        ),
-        tool('list_versions', 'List all saved workspace versions, newest first.', {}, async () => {
-          const versions = await listVersions(project);
-          const text = versions
-            .map((v) => `${v.id.slice(0, 8)}  ${v.date}  ${v.label}${v.auto ? ' (auto)' : ''}`)
-            .join('\n');
-          return { content: [{ type: 'text' as const, text: text || 'No versions yet.' }] };
-        }),
-        tool(
-          'revert_version',
-          'Restore the workspace to a previous version. The current state is snapshotted first, so this is non-destructive.',
-          { id: z.string().describe('Version id (full or abbreviated commit hash)') },
-          async (args) => {
-            const version = await revertToVersion(project, args.id);
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: `Workspace restored. New version ${version.id.slice(0, 8)}: ${version.label}. Re-read the workspace before continuing.`,
-                },
-              ],
-            };
-          },
-        ),
-        tool(
-          'request_review',
-          'MANDATORY before packaging. Presents your summary to the user and blocks until they approve or send revision instructions. Returns the decision.',
-          {
-            summary: z
-              .string()
-              .describe(
-                'What was translated, glossary/consistency notes, notable challenges, open questions',
-              ),
-          },
-          async (args) => {
-            project.emit('review_request', 'orchestrator', { summary: args.summary });
-            project.setStatus('awaiting_review');
-            const answer = await new Promise<string>((resolve) => {
-              this.reviewGate = { resolve };
-            });
-            return { content: [{ type: 'text' as const, text: answer }] };
-          },
-        ),
-        tool(
-          'mark_complete',
-          'Record that the translated EPUB has been produced. Call exactly once per successful packaging.',
-          {
-            epub_path: z.string().describe('Path to the produced .epub, relative to the project root'),
-            summary: z.string().describe('One-paragraph completion summary for the user'),
-          },
-          async (args) => {
-            const abs = path.resolve(project.workspace, args.epub_path);
-            if (!abs.startsWith(project.workspace)) {
-              return {
-                content: [{ type: 'text' as const, text: 'Path escapes the workspace.' }],
-                isError: true,
-              };
-            }
-            if (!fs.existsSync(abs) || fs.statSync(abs).size < 1024) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: `No plausible EPUB found at ${args.epub_path} — verify packaging actually succeeded.`,
-                  },
-                ],
-                isError: true,
-              };
-            }
-            project.meta.outputPath = path.relative(project.workspace, abs);
-            project.save();
-            this.completedThisTurn = true;
-            project.emit('progress', 'orchestrator', {
-              phase: 'done',
-              state: 'completed',
-              detail: args.summary,
-            });
-            return { content: [{ type: 'text' as const, text: 'Completion recorded.' }] };
-          },
-        ),
-      ],
-    });
+          }
+          project.meta.outputPath = path.relative(project.workspace, abs);
+          project.save();
+          this.completedThisTurn = true;
+          project.emit('progress', 'orchestrator', {
+            phase: 'done',
+            state: 'completed',
+            detail: args.summary,
+          });
+          return { content: [{ type: 'text' as const, text: 'Completion recorded.' }] };
+        },
+      ),
+    ];
   }
 
   private async run(): Promise<void> {
@@ -302,7 +300,8 @@ export class OrchestratorSession {
     this.lastRunUsage = null;
     this.liveUsage.clear();
     this.seenUsageIds.clear();
-    const stream = query({
+    const tools = this.lexisTools();
+    const stream = sdk.query({
       prompt: this.inputStream(),
       options: {
         cwd: project.workspace,
@@ -312,7 +311,7 @@ export class OrchestratorSession {
         ...(CLAUDE_BINARY ? { pathToClaudeCodeExecutable: CLAUDE_BINARY } : {}),
         systemPrompt: orchestratorPrompt(project.meta),
         agents: AGENTS,
-        mcpServers: { lexis: this.mcpServer() },
+        mcpServers: { lexis: createSdkMcpServer({ name: 'lexis', version: '1.0.0', tools }) },
         settingSources: [],
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
@@ -339,7 +338,7 @@ export class OrchestratorSession {
           if (env.debug) console.error(`[claude:${project.meta.id}]`, data);
         },
       },
-    });
+    }, { tools });
     this.q = stream;
     try {
       for await (const message of stream) {

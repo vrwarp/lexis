@@ -28,9 +28,8 @@ Alternatives to the web sign-in, in the order Claude Code prefers them:
 pause on its rate limits; the translation tier uses Opus, so the plan needs
 Opus access.
 
-A published image: merges to `main` that pass CI are pushed to Docker Hub by
-`.github/workflows/docker-publish.yml` (set the `DOCKERHUB_USERNAME` /
-`DOCKERHUB_TOKEN` secrets, optionally the `DOCKERHUB_REPO` variable).
+Merges to `main` that pass CI are pushed to Docker Hub (see [CI](#ci)), so a
+host can also run the published image instead of building.
 
 ## Models
 
@@ -64,8 +63,38 @@ Options worth knowing about:
 ```sh
 npm install
 LEXIS_PASSWORD=dev npm run dev        # http://localhost:4700
-npm run typecheck && npm test
 ```
+
+### Tests
+
+```sh
+npm run typecheck          # src and tests
+npm run test:unit          # vitest: modules in isolation
+npm run test:integration   # vitest: the real HTTP server and WebSocket on a free port
+npm run test:e2e           # Playwright: the UI in Chromium (npx playwright install chromium first)
+```
+
+None of them needs Claude or a network. `src/sdk.ts` is the app's single
+door to the Agent SDK; the tests swap it for a scripted fake
+(`test/support/fake-sdk.ts`) that plays back SDK messages and calls the
+lexis tools for real, writing files into the workspace and stopping at the
+review gate. The browser sign-in drives a fake `claude` binary
+(`test/support/fake-claude.mjs`, accepts the code `good-code`). The Playwright
+run boots two copies of the app (`test/e2e/server.ts`): one with no Claude
+login for the password and sign-in flows, one already linked for the
+translation workflow. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use a Chromium
+you already have.
+
+### CI
+
+| Workflow | When | What |
+|---|---|---|
+| `ci.yml` | every PR and push to `main` | typecheck, unit + integration tests, build; Playwright in a second job (report uploaded as an artifact) |
+| `docker-dry-run.yml` | every PR | the Docker Hub publish minus the push: same image name and tags, Docker Hub login check, build, then boots the image and checks the sign-in flows, tools and Claude binary inside it |
+| `docker-publish.yml` | after `ci.yml` succeeds on a push to `main` (a merge), or by hand | builds and pushes `latest` and `sha-<short>` to Docker Hub |
+
+Set the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets (and optionally the
+`DOCKERHUB_REPO` variable, default `<username>/lexis`).
 
 `zip`/`unzip` and `git` must be on `PATH` (extraction, packaging and
 versioning use them). `LEXIS_DATA_DIR` overrides where projects and the Claude

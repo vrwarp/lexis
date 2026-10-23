@@ -59,8 +59,9 @@ async function refreshProjects() {
     el.className = 'project-item' + (state.current?.id === p.id ? ' active' : '');
     el.innerHTML = `
       <div class="p-name"></div>
-      <div class="p-sub"><span class="chip status" data-status="${p.status}">${label(p.status)}</span><span>${p.targetLanguage}</span></div>`;
+      <div class="p-sub"><span class="chip status" data-status="${p.status}">${label(p.status)}</span><span class="p-lang"></span></div>`;
     el.querySelector('.p-name').textContent = p.name;
+    el.querySelector('.p-lang').textContent = p.targetLanguage;
     el.addEventListener('click', () => selectProject(p.id));
     list.appendChild(el);
   }
