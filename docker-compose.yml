@@ -1,0 +1,19 @@
+services:
+  lexis:
+    build: .
+    image: lexis:latest
+    container_name: lexis
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      # Projects, workspaces, Agent SDK sessions and the Claude login all live here.
+      # A named volume keeps the ownership the image set for the non-root user.
+      # To use a host folder instead: `- ./data:/data` plus `chown -R 1001:1001 ./data`.
+      - lexis-data:/data
+    mem_limit: 4g
+
+volumes:
+  lexis-data:

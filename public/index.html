@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>lexis — EPUB translation studio</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- ============ sign-in ============ -->
+  <div id="login-screen" class="hidden">
+    <form id="login-form" class="empty-card login-card">
+      <span class="brand-mark big">λ</span>
+      <h2>lexis</h2>
+      <p class="muted" id="login-note">Enter the password to open the studio.</p>
+      <input type="password" id="login-password" autocomplete="current-password" placeholder="Password" required />
+      <button type="submit" class="primary wide">Sign in</button>
+      <p id="login-error" class="error-text hidden" role="alert"></p>
+    </form>
+  </div>
+
+  <div id="app" class="hidden">
+    <!-- ============ sidebar ============ -->
+    <aside id="sidebar">
+      <div class="brand">
+        <span class="brand-mark">λ</span>
+        <div>
+          <h1>lexis</h1>
+          <p>EPUB translation studio</p>
+        </div>
+      </div>
+
+      <button id="new-project-btn" class="primary wide">＋ New translation</button>
+
+      <nav id="project-list" aria-label="Projects"></nav>
+
+      <form id="new-project-form" class="hidden">
+        <h2>New translation</h2>
+        <label>EPUB file
+          <input type="file" name="epub" accept=".epub" required />
+        </label>
+        <label>Project name <span class="muted">(optional)</span>
+          <input type="text" name="name" placeholder="Defaults to the filename" />
+        </label>
+        <label>Target language
+          <input type="text" name="targetLanguage" placeholder="e.g. Traditional Chinese (Taiwan)" required />
+        </label>
+        <label>Context &amp; instructions <span class="muted">(optional)</span>
+          <textarea name="context" rows="4" placeholder="Audience, register, names to keep, anything the translators should know…"></textarea>
+        </label>
+        <div class="row">
+          <button type="submit" class="primary">Create project</button>
+          <button type="button" id="cancel-new-project" class="ghost">Cancel</button>
+        </div>
+      </form>
+
+      <div id="claude-status" class="claude-status">
+        <button id="claude-open" class="ghost wide claude-open" title="Claude subscription link">
+          <span id="claude-dot" class="dot"></span>
+          <span id="claude-label">Claude…</span>
+        </button>
+        <button id="logout-btn" class="ghost small" title="Sign out of lexis">Sign out</button>
+      </div>
+    </aside>
+
+    <!-- ============ main ============ -->
+    <main id="main">
+      <section id="empty-state">
+        <div class="empty-card">
+          <span class="brand-mark big">λ</span>
+          <h2>Translate a book</h2>
+          <p>Upload an EPUB and a target language. An orchestrator agent runs the
+            14-agent pipeline — extraction, glossary building, drafting, omission
+            &amp; stray-phrase auditing, native critique, final polish — and checks
+            in with you before packaging the translated EPUB.</p>
+          <p class="muted" id="tier-note">The strong model does the translating. The cheaper one does everything else.</p>
+        </div>
+      </section>
+
+      <section id="project-view" class="hidden">
+        <header id="project-header">
+          <div class="title-block">
+            <h2 id="project-title"></h2>
+            <div class="subtitle">
+              <span id="project-lang" class="chip lang"></span>
+              <span id="project-status" class="chip status"></span>
+            </div>
+          </div>
+          <div id="project-actions" class="actions">
+            <button id="start-btn" class="primary hidden">▶ Start translation</button>
+            <button id="download-btn" class="primary hidden">⤓ Download EPUB</button>
+            <label id="cover-btn" class="ghost button-like" title="Optional custom cover for the translated EPUB">
+              🖼 Cover<input type="file" id="cover-input" accept=".jpg,.jpeg,.png,.gif,.webp,.svg" hidden />
+            </label>
+            <button id="repackage-btn" class="ghost hidden" title="Rebuild the finished EPUB with the uploaded cover — no agents involved">↻ Repackage</button>
+            <button id="interrupt-btn" class="ghost danger hidden" title="Interrupt the orchestrator">■ Stop</button>
+          </div>
+        </header>
+
+        <!-- pipeline board -->
+        <div id="pipeline-board" aria-label="Pipeline progress"></div>
+
+        <!-- review gate banner -->
+        <div id="review-banner" class="hidden">
+          <div class="review-head">
+            <span class="pulse"></span>
+            <strong>The orchestrator is ready to package and wants your review.</strong>
+          </div>
+          <div class="review-body"><pre id="review-summary"></pre></div>
+          <textarea id="review-instructions" rows="3"
+            placeholder="Optional: instructions for another pass (tone tweaks, name fixes, chapters to redo…)"></textarea>
+          <div class="row">
+            <button id="review-approve" class="primary">✓ Approve &amp; package</button>
+            <button id="review-revise" class="ghost">↺ Request another pass</button>
+          </div>
+        </div>
+
+        <div id="workbench">
+          <!-- activity feed + chat -->
+          <div id="feed-pane">
+            <div class="pane-head">
+              <h3>Activity</h3>
+              <label class="toggle"><input type="checkbox" id="show-detail" /> tool detail</label>
+            </div>
+            <div id="feed" role="log"></div>
+            <form id="chat-form">
+              <input id="chat-input" type="text" autocomplete="off"
+                placeholder="Message the orchestrator — ask, steer, request changes…" />
+              <button type="submit" class="primary">Send</button>
+            </form>
+          </div>
+
+          <!-- versions / files -->
+          <div id="version-pane">
+            <div class="tab-bar" role="tablist">
+              <button class="tab active" data-tab="versions">Versions</button>
+              <button class="tab" data-tab="files">Files</button>
+            </div>
+            <div id="tab-versions" class="tab-body">
+              <div class="pane-head">
+                <h3>Versions</h3>
+                <button id="snapshot-btn" class="ghost small" title="Snapshot the workspace now">＋ snapshot</button>
+              </div>
+              <ol id="version-list"></ol>
+            </div>
+            <div id="tab-files" class="tab-body hidden">
+              <div class="pane-head">
+                <h3>Generated assets</h3>
+                <button id="files-refresh" class="ghost small" title="Reload the file list">↻ refresh</button>
+              </div>
+              <div id="file-tree"><p class="muted usage-empty">No files yet.</p></div>
+            </div>
+            <div class="pane-head usage-head">
+              <h3>Usage</h3>
+              <span id="usage-total" class="usage-total"></span>
+            </div>
+            <div id="usage-panel"><p class="muted usage-empty">No usage yet.</p></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- asset viewer & review modal -->
+  <div id="asset-modal" class="hidden">
+    <div class="modal-card">
+      <header class="modal-head">
+        <span id="asset-path" class="asset-path"></span>
+        <div class="row">
+          <button id="asset-view-toggle" class="ghost small hidden">📖 reading view</button>
+          <button id="asset-refresh" class="ghost small" title="Reload">↻</button>
+          <button id="asset-close" class="ghost small" title="Close">✕</button>
+        </div>
+      </header>
+      <div id="asset-content" tabindex="0"></div>
+      <div id="asset-quote" class="hidden">
+        <blockquote id="asset-quote-text"></blockquote>
+        <button id="quote-clear" class="ghost small" title="Remove quoted passage">✕</button>
+      </div>
+      <form id="asset-comment-form">
+        <textarea id="asset-comment" rows="2"
+          placeholder="Comment on this file — select text above to quote it. Sent straight to the orchestrator."></textarea>
+        <button type="submit" class="primary">Send to orchestrator</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Claude link modal -->
+  <div id="claude-modal" class="hidden">
+    <div class="modal-card claude-card">
+      <header class="modal-head">
+        <span class="asset-path">Claude link</span>
+        <button id="claude-close" class="ghost small" title="Close">✕</button>
+      </header>
+      <div class="claude-body">
+        <dl class="kv" id="claude-kv"></dl>
+        <p id="claude-shadowed" class="muted small hidden">This container gets its credential from its environment
+          (API key or token), which outranks a web sign-in. Clear that setting and restart to sign in here instead.</p>
+
+        <form id="claude-steps" class="claude-steps hidden">
+          <p><b>1.</b> Open Claude’s sign-in and approve access with the account that has your subscription.</p>
+          <a id="claude-link" class="button-like primary wide" href="#" target="_blank" rel="noreferrer">Open Claude sign-in ↗</a>
+          <p><b>2.</b> Claude shows a code. Copy it and paste it here.</p>
+          <input id="claude-code" type="text" placeholder="Paste the code" autocomplete="off" autocorrect="off" spellcheck="false" />
+          <div class="row">
+            <button type="submit" id="claude-submit" class="primary">Link Claude</button>
+            <button type="button" id="claude-cancel" class="ghost">Cancel</button>
+          </div>
+        </form>
+
+        <div id="claude-actions" class="row">
+          <button id="claude-signin" class="primary">Sign in with Claude</button>
+          <button id="claude-signout" class="ghost danger hidden">Sign out of Claude</button>
+        </div>
+        <p id="claude-msg" class="small hidden" role="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

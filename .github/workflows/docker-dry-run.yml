@@ -1,0 +1,64 @@
+name: Docker dry run
+
+# Pull requests only: build the image exactly as the publish workflow would, never push it,
+# then boot it and check that it answers its health check.
+on:
+  pull_request:
+
+concurrency:
+  group: docker-dry-run-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and boot the image (no push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: lexis:dry-run
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Boot the container and wait for /healthz
+        run: |
+          docker run -d --name lexis -p 8080:8080 -e LEXIS_PASSWORD=ci-dry-run lexis:dry-run
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz; then echo; echo "healthy after ${i}s"; break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/healthz > /dev/null
+          curl -fsS http://127.0.0.1:8080/ | grep -q 'id="login-screen"'
+          # The API refuses without the cookie, and lets the password in.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/projects)" = 401
+          curl -fsS -c jar -H 'content-type: application/json' -d '{"password":"ci-dry-run"}' http://127.0.0.1:8080/api/login
+          curl -fsS -b jar http://127.0.0.1:8080/api/projects | grep -q '^\[\]$'
+          # Claude Code offers a subscription sign-in link from inside the container.
+          curl -fsS -b jar -X POST http://127.0.0.1:8080/api/claude/login/start | grep -q '"url":"https://'
+          curl -fsS -b jar -X POST http://127.0.0.1:8080/api/claude/login/cancel
+
+      - name: Check the pipeline's command-line tools are present
+        run: docker exec lexis sh -c 'git --version && zip -v | head -1 && unzip -v | head -1'
+
+      - name: Check the bundled Claude binary runs as the app user
+        run: docker exec lexis claude --version
+
+      - name: Show the image size
+        run: docker image ls lexis:dry-run
+
+      - name: Container logs
+        if: ${{ always() }}
+        run: docker logs lexis || true
