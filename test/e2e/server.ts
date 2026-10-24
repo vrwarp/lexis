@@ -13,7 +13,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lexis-e2e-'));
 process.env.LEXIS_DATA_DIR = dataDir;
 process.env.CLAUDE_BINARY = path.join(here, '..', 'support', 'fake-claude.mjs');
 process.env.LEXIS_PASSWORD ??= 'e2e-password';
-for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'SESSION_SECRET']) delete process.env[k];
+for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'LEXIS_PUBLIC_URL']) delete process.env[k];
 if (process.env.E2E_LINKED === '1') {
   fs.mkdirSync(path.join(dataDir, 'claude'), { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'claude', '.credentials.json'), '{}');
@@ -24,4 +24,5 @@ const { fakeQuery, pipelineScenario } = await import('../support/fake-sdk.js');
 sdk.query = fakeQuery(pipelineScenario, () => ({ email: 'reader@example.com', subscriptionType: 'max' }));
 const { createServer } = await import('../../src/app.js');
 const port = Number(process.env.PORT ?? 4801);
-createServer().listen(port, '127.0.0.1', () => console.log(`lexis e2e server on ${port} (data ${dataDir})`));
+// All interfaces: the browser uses localhost, which passkeys need (an IP is not a valid RP ID).
+createServer().listen(port, () => console.log(`lexis e2e server on ${port} (data ${dataDir})`));

@@ -29,17 +29,23 @@ const state = {
 
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
-  if (res.status === 401 && path !== '/api/login') {
-    showLogin();
+  // A wrong password or passkey answers 401 too; only other 401s mean the session ended.
+  if (res.status === 401 && !/^\/api\/auth\/(password|passkey\/|stepup\/)/.test(path)) {
+    showLogin('Your session ended. Sign in again.');
     throw new Error('Signed out. Sign in again.');
   }
   if (!res.ok) {
-    let detail = res.statusText;
-    try { detail = (await res.json()).error ?? detail; } catch { /* ignore */ }
-    throw new Error(detail);
+    let body = {};
+    try { body = await res.json(); } catch { /* ignore */ }
+    const err = new Error(body.error ?? res.statusText);
+    err.status = res.status;
+    err.body = body;
+    throw err;
   }
   return res.json();
 }
+
+const del = (path) => api(path, { method: 'DELETE' });
 
 const post = (path, body) =>
   api(path, {
@@ -51,7 +57,8 @@ const post = (path, body) =>
 /* ---------------- project list ---------------- */
 
 async function refreshProjects() {
-  state.projects = await api('/api/projects');
+  // Called in the background from many places: a dropped request just waits for the next refresh.
+  try { state.projects = await api('/api/projects'); } catch { return; }
   const list = $('project-list');
   list.innerHTML = '';
   for (const p of state.projects) {
@@ -62,7 +69,7 @@ async function refreshProjects() {
       <div class="p-sub"><span class="chip status" data-status="${p.status}">${label(p.status)}</span><span class="p-lang"></span></div>`;
     el.querySelector('.p-name').textContent = p.name;
     el.querySelector('.p-lang').textContent = p.targetLanguage;
-    el.addEventListener('click', () => selectProject(p.id));
+    el.addEventListener('click', () => selectProject(p.id).catch((e) => alert(e.message)));
     list.appendChild(el);
   }
 }
@@ -655,7 +662,9 @@ $('files-refresh').addEventListener('click', loadFiles);
 
 async function loadVersions() {
   if (!state.current) return;
-  renderVersions(await api(`/api/projects/${state.current.id}/versions`));
+  let versions;
+  try { versions = await api(`/api/projects/${state.current.id}/versions`); } catch { return; }
+  renderVersions(versions);
 }
 
 function renderVersions(versions) {
@@ -812,43 +821,321 @@ setInterval(async () => {
   } catch { /* server briefly unavailable */ }
 }, 10000);
 
-/* ---------------- app sign-in ---------------- */
+/* ---------------- sign-in: password first, then passkeys ---------------- */
 
-function showLogin(note) {
+const webauthn = window.SimpleWebAuthnBrowser;
+const passkeysSupported = () => Boolean(webauthn?.browserSupportsWebAuthn?.() && window.isSecureContext);
+
+function loginError(text) {
+  const err = $('login-error');
+  err.textContent = text ?? '';
+  err.classList.toggle('hidden', !text);
+}
+
+async function showLogin(note) {
   state.signedIn = false;
   if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
-  $('app').classList.add('hidden');
-  $('claude-modal').classList.add('hidden');
+  for (const id of ['app', 'claude-modal', 'security-modal', 'passkey-setup', 'stepup-modal']) $(id).classList.add('hidden');
   $('login-screen').classList.remove('hidden');
-  if (note) $('login-note').textContent = note;
-  $('login-password').focus();
+  loginError(null);
+  let st = { passkeys: false, passwordSet: true };
+  try { st = await (await fetch('/api/auth/state')).json(); } catch { /* offline: show the password form */ }
+  // Passkey first when there is one; the password is always there as the backup.
+  const passkeyFirst = st.passkeys && passkeysSupported();
+  $('passkey-signin').classList.toggle('hidden', !passkeyFirst);
+  $('login-or').classList.toggle('hidden', !passkeyFirst || !st.passwordSet);
+  $('login-form').classList.toggle('hidden', !st.passwordSet);
+  $('password-signin').classList.toggle('primary', !passkeyFirst);
+  let text = note ?? (passkeyFirst ? 'Sign in with your passkey.' : 'Enter the password to open the studio.');
+  if (!st.passwordSet && !passkeyFirst) text = 'LEXIS_PASSWORD is not set on the server, so nobody can sign in yet.';
+  $('login-note').textContent = text;
+  if (passkeyFirst) $('passkey-signin').focus();
+  else $('login-password').focus();
 }
 
 async function enterApp() {
   state.signedIn = true;
   $('login-screen').classList.add('hidden');
   $('app').classList.remove('hidden');
-  await Promise.all([refreshProjects(), loadClaude()]);
-  if (state.current) selectProject(state.current.id);
+  await Promise.all([refreshProjects(), loadClaude(), loadSecurity()]);
+  if (state.current) selectProject(state.current.id).catch(() => undefined);
 }
 
 $('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const err = $('login-error');
-  err.classList.add('hidden');
+  loginError(null);
   try {
-    await post('/api/login', { password: $('login-password').value });
+    const r = await post('/api/auth/password', { password: $('login-password').value });
     $('login-password').value = '';
     await enterApp();
+    if (!r.passkeys && !sessionStorageGet('lexis.passkeyLater')) openPasskeySetup();
   } catch (ex) {
-    err.textContent = ex.message;
-    err.classList.remove('hidden');
+    loginError(ex.message);
+  }
+});
+
+$('passkey-signin').addEventListener('click', async () => {
+  loginError(null);
+  const btn = $('passkey-signin');
+  btn.disabled = true;
+  try {
+    const { challengeId, options } = await post('/api/auth/passkey/options');
+    const response = await webauthn.startAuthentication({ optionsJSON: options });
+    await post('/api/auth/passkey/verify', { challengeId, response });
+    await enterApp();
+  } catch (ex) {
+    loginError(passkeyErrorText(ex));
+  } finally {
+    btn.disabled = false;
   }
 });
 
 $('logout-btn').addEventListener('click', async () => {
-  await post('/api/logout').catch(() => undefined);
+  await post('/api/auth/logout').catch(() => undefined);
   showLogin('Signed out.');
+});
+
+function passkeyErrorText(ex) {
+  if (ex?.name === 'NotAllowedError' || ex?.code === 'ERROR_CEREMONY_ABORTED') return 'Passkey request cancelled.';
+  if (ex?.name === 'InvalidStateError' || ex?.code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED') return 'That passkey is already registered here.';
+  return ex?.message ?? String(ex);
+}
+
+function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
+function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch { /* ignore */ } }
+
+/* Step-up: before adding or removing a passkey the server wants recent proof it's you. */
+async function withStepUp(fn) {
+  try {
+    return await fn();
+  } catch (ex) {
+    if (ex.status !== 403 || !ex.body?.stepUp) throw ex;
+    let confirmed = false;
+    if (ex.body.stepUp === 'passkey' && passkeysSupported()) {
+      try {
+        const { challengeId, options } = await post('/api/auth/stepup/passkey/options');
+        const response = await webauthn.startAuthentication({ optionsJSON: options });
+        await post('/api/auth/stepup/passkey/verify', { challengeId, response });
+        confirmed = true;
+      } catch {
+        // No passkey at hand (or cancelled): the password is the backup.
+      }
+    }
+    if (!confirmed) await stepUpPassword();
+    return fn();
+  }
+}
+
+function stepUpPassword() {
+  return new Promise((resolve, reject) => {
+    const modal = $('stepup-modal');
+    const form = $('stepup-form');
+    const err = $('stepup-error');
+    err.classList.add('hidden');
+    $('stepup-password').value = '';
+    modal.classList.remove('hidden');
+    $('stepup-password').focus();
+    const done = (ok, value) => {
+      modal.classList.add('hidden');
+      form.removeEventListener('submit', submit);
+      $('stepup-cancel').removeEventListener('click', cancel);
+      ok ? resolve(value) : reject(new Error('Cancelled.'));
+    };
+    const submit = async (e) => {
+      e.preventDefault();
+      try {
+        await post('/api/auth/stepup/password', { password: $('stepup-password').value });
+        done(true);
+      } catch (ex) {
+        err.textContent = ex.message;
+        err.classList.remove('hidden');
+      }
+    };
+    const cancel = () => done(false);
+    form.addEventListener('submit', submit);
+    $('stepup-cancel').addEventListener('click', cancel);
+  });
+}
+
+async function registerPasskey(name) {
+  return withStepUp(async () => {
+    const { challengeId, options } = await post('/api/auth/passkeys/options');
+    const response = await webauthn.startRegistration({ optionsJSON: options });
+    return post('/api/auth/passkeys/verify', { challengeId, response, name });
+  });
+}
+
+/* ---------------- passkey setup prompt ---------------- */
+
+function openPasskeySetup() {
+  const msg = $('passkey-setup-msg');
+  msg.className = 'small hidden';
+  $('passkey-setup-name').value = '';
+  $('passkey-setup').classList.remove('hidden');
+  if (!passkeysSupported()) {
+    msg.textContent = window.isSecureContext ? 'This browser cannot create passkeys.' : 'Passkeys need https (or localhost).';
+    msg.className = 'small bad';
+    $('passkey-setup-create').disabled = true;
+  } else {
+    $('passkey-setup-create').disabled = false;
+  }
+}
+
+$('passkey-setup-later').addEventListener('click', () => {
+  sessionStorageSet('lexis.passkeyLater', '1');
+  $('passkey-setup').classList.add('hidden');
+});
+
+$('passkey-setup-create').addEventListener('click', async () => {
+  const msg = $('passkey-setup-msg');
+  const btn = $('passkey-setup-create');
+  btn.disabled = true;
+  msg.className = 'small';
+  msg.textContent = 'Follow your browser’s prompt…';
+  try {
+    await registerPasskey($('passkey-setup-name').value);
+    $('passkey-setup').classList.add('hidden');
+    await loadSecurity();
+    openSecurity('Passkey created. Sign in with it from now on; the password stays as a backup.');
+  } catch (ex) {
+    msg.textContent = passkeyErrorText(ex);
+    msg.className = 'small bad';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* ---------------- security panel ---------------- */
+
+const security = { data: null };
+
+function securityMsg(text, ok) {
+  const el = $('security-msg');
+  el.textContent = text ?? '';
+  el.className = 'small' + (text ? (ok ? ' ok' : ' bad') : ' hidden');
+}
+
+function fmtWhen(iso) {
+  return iso ? new Date(iso).toLocaleString() : 'never';
+}
+
+function shortAgent(ua) {
+  if (!ua) return 'unknown browser';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${browser} on ${os}` : browser;
+}
+
+async function loadSecurity() {
+  try {
+    security.data = await api('/api/auth/security');
+  } catch {
+    return;
+  }
+  renderSecurity();
+}
+
+function renderSecurity() {
+  const d = security.data;
+  if (!d) return;
+  const hasPasskey = d.passkeys.length > 0;
+  $('security-dot').className = 'dot ' + (hasPasskey ? 'ok' : 'bad');
+  $('security-open').title = hasPasskey ? 'Passkeys and signed-in browsers' : 'No passkey yet: set one up';
+  $('security-summary').textContent = hasPasskey
+    ? 'Sign in with a passkey; the password still works as a backup, so keep it long and private.'
+    : 'No passkey yet: only the password protects lexis. Add a passkey for quick, phishing-proof sign-in.';
+
+  const pl = $('passkey-list');
+  pl.innerHTML = '';
+  if (!hasPasskey) pl.innerHTML = '<li class="empty">None yet.</li>';
+  for (const p of d.passkeys) {
+    const li = document.createElement('li');
+    li.innerHTML = '<div class="li-main"><div class="li-title"></div><div class="li-sub"></div></div><div class="li-actions"></div>';
+    li.querySelector('.li-title').textContent = p.name;
+    li.querySelector('.li-sub').textContent =
+      `${p.deviceType === 'multiDevice' ? 'synced' : 'this device only'} · added ${fmtWhen(p.createdAt)} · last used ${fmtWhen(p.lastUsedAt)}`;
+    const rename = document.createElement('button');
+    rename.className = 'ghost small';
+    rename.textContent = 'rename';
+    rename.addEventListener('click', async () => {
+      const name = prompt('New name for this passkey:', p.name);
+      if (!name) return;
+      try { await post(`/api/auth/passkeys/${encodeURIComponent(p.id)}/rename`, { name }); await loadSecurity(); }
+      catch (ex) { securityMsg(ex.message, false); }
+    });
+    const remove = document.createElement('button');
+    remove.className = 'ghost small danger';
+    remove.textContent = 'remove';
+    remove.addEventListener('click', async () => {
+      if (!confirm(`Remove "${p.name}"? It will no longer sign in.`)) return;
+      try {
+        await withStepUp(() => del(`/api/auth/passkeys/${encodeURIComponent(p.id)}`));
+        securityMsg(`Removed "${p.name}".`, true);
+        await loadSecurity();
+      } catch (ex) { securityMsg(passkeyErrorText(ex), false); }
+    });
+    li.querySelector('.li-actions').append(rename, remove);
+    pl.appendChild(li);
+  }
+
+  const sl = $('session-list');
+  sl.innerHTML = '';
+  for (const s of d.sessions) {
+    const li = document.createElement('li');
+    li.innerHTML = '<div class="li-main"><div class="li-title"></div><div class="li-sub"></div></div><div class="li-actions"></div>';
+    li.querySelector('.li-title').textContent = shortAgent(s.userAgent);
+    if (s.current) li.querySelector('.li-title').insertAdjacentHTML('beforeend', '<span class="tag">this browser</span>');
+    li.querySelector('.li-sub').textContent =
+      `${s.method} · signed in ${fmtWhen(s.createdAt)} · last seen ${fmtWhen(s.lastSeenAt)}${s.ip ? ' · ' + s.ip : ''}`;
+    const out = document.createElement('button');
+    out.className = 'ghost small';
+    out.textContent = 'sign out';
+    out.addEventListener('click', async () => {
+      try {
+        await del(`/api/auth/sessions/${encodeURIComponent(s.id)}`);
+        if (s.current) { showLogin('Signed out.'); return; }
+        await loadSecurity();
+      } catch (ex) { securityMsg(ex.message, false); }
+    });
+    li.querySelector('.li-actions').append(out);
+    sl.appendChild(li);
+  }
+  $('sessions-revoke-others').disabled = d.sessions.length < 2;
+}
+
+function openSecurity(message) {
+  $('security-modal').classList.remove('hidden');
+  securityMsg(message ?? null, true);
+  loadSecurity();
+}
+
+$('security-open').addEventListener('click', () => {
+  if (security.data && !security.data.passkeys.length) openPasskeySetup();
+  else openSecurity();
+});
+$('security-close').addEventListener('click', () => $('security-modal').classList.add('hidden'));
+
+$('passkey-add').addEventListener('click', async () => {
+  if (!passkeysSupported()) { securityMsg('Passkeys need https (or localhost) and a supporting browser.', false); return; }
+  const name = prompt('Name this passkey (e.g. iPhone, YubiKey):', '');
+  if (name === null) return;
+  securityMsg('Follow your browser’s prompt…', true);
+  try {
+    const r = await registerPasskey(name);
+    securityMsg(`Added "${r.passkey.name}".`, true);
+    await loadSecurity();
+  } catch (ex) {
+    securityMsg(passkeyErrorText(ex), false);
+  }
+});
+
+$('sessions-revoke-others').addEventListener('click', async () => {
+  if (!confirm('Sign out every other browser?')) return;
+  try {
+    const r = await post('/api/auth/sessions/revoke-others');
+    securityMsg(`Signed out ${r.signedOut} browser(s).`, true);
+    await loadSecurity();
+  } catch (ex) { securityMsg(ex.message, false); }
 });
 
 /* ---------------- Claude link ---------------- */
@@ -980,10 +1267,10 @@ $('claude-signout').addEventListener('click', async () => {
 
 (async () => {
   try {
-    const s = await api('/api/session');
+    const s = await (await fetch('/api/auth/state')).json();
     if (s.signedIn) await enterApp();
-    else showLogin(s.passwordSet ? undefined : 'LEXIS_PASSWORD is not set on the server, so nobody can sign in yet.');
+    else await showLogin();
   } catch {
-    showLogin();
+    await showLogin();
   }
 })();

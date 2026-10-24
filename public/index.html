@@ -9,14 +9,18 @@
 <body>
   <!-- ============ sign-in ============ -->
   <div id="login-screen" class="hidden">
-    <form id="login-form" class="empty-card login-card">
+    <div class="empty-card login-card">
       <span class="brand-mark big">λ</span>
       <h2>lexis</h2>
-      <p class="muted" id="login-note">Enter the password to open the studio.</p>
-      <input type="password" id="login-password" autocomplete="current-password" placeholder="Password" required />
-      <button type="submit" class="primary wide">Sign in</button>
+      <p class="muted" id="login-note">Sign in to open the studio.</p>
+      <button type="button" id="passkey-signin" class="primary wide hidden">🔑 Sign in with a passkey</button>
+      <p id="login-or" class="muted small hidden">or use the password</p>
+      <form id="login-form" class="login-form hidden">
+        <input type="password" id="login-password" autocomplete="current-password" placeholder="Password" required />
+        <button type="submit" class="wide" id="password-signin">Sign in with password</button>
+      </form>
       <p id="login-error" class="error-text hidden" role="alert"></p>
-    </form>
+    </div>
   </div>
 
   <div id="app" class="hidden">
@@ -59,7 +63,12 @@
           <span id="claude-dot" class="dot"></span>
           <span id="claude-label">Claude…</span>
         </button>
-        <button id="logout-btn" class="ghost small" title="Sign out of lexis">Sign out</button>
+        <div class="row">
+          <button id="security-open" class="ghost small grow" title="Passkeys and signed-in browsers">
+            <span id="security-dot" class="dot"></span> Security
+          </button>
+          <button id="logout-btn" class="ghost small" title="Sign out of lexis">Sign out</button>
+        </div>
       </div>
     </aside>
 
@@ -217,6 +226,59 @@
     </div>
   </div>
 
+  <!-- passkey setup prompt (after a password sign-in with no passkey yet) -->
+  <div id="passkey-setup" class="overlay hidden">
+    <div class="modal-card small-card" role="dialog" aria-labelledby="passkey-setup-title">
+      <div class="claude-body">
+        <h3 id="passkey-setup-title">Protect lexis with a passkey</h3>
+        <p>lexis is reachable from the internet. A passkey (Face ID, Touch ID, Windows Hello, your phone or a
+          security key) is far stronger than a password and can't be phished.</p>
+        <p class="muted small">The password keeps working as a backup, for a device without your passkey.</p>
+        <label class="small">Name <input type="text" id="passkey-setup-name" placeholder="e.g. MacBook, iPhone" maxlength="60" /></label>
+        <div class="row">
+          <button id="passkey-setup-create" class="primary">Create passkey</button>
+          <button id="passkey-setup-later" class="ghost">Not now</button>
+        </div>
+        <p id="passkey-setup-msg" class="small hidden" role="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- security: passkeys and sessions -->
+  <div id="security-modal" class="overlay hidden">
+    <div class="modal-card claude-card" role="dialog" aria-labelledby="security-title">
+      <header class="modal-head">
+        <span class="asset-path" id="security-title">Security</span>
+        <button id="security-close" class="ghost small" title="Close">✕</button>
+      </header>
+      <div class="claude-body">
+        <p id="security-summary" class="small"></p>
+        <div class="pane-head"><h3>Passkeys</h3><button id="passkey-add" class="ghost small">＋ Add a passkey</button></div>
+        <ul id="passkey-list" class="plain-list"></ul>
+        <div class="pane-head"><h3>Signed-in browsers</h3><button id="sessions-revoke-others" class="ghost small">Sign out all others</button></div>
+        <ul id="session-list" class="plain-list"></ul>
+        <p id="security-msg" class="small hidden" role="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- step-up: confirm it's you before changing how you sign in -->
+  <div id="stepup-modal" class="overlay hidden">
+    <form id="stepup-form" class="modal-card small-card" role="dialog" aria-labelledby="stepup-title">
+      <div class="claude-body">
+        <h3 id="stepup-title">Confirm it's you</h3>
+        <p class="small">Enter the password to confirm this change.</p>
+        <input type="password" id="stepup-password" autocomplete="current-password" placeholder="Your password" aria-label="Password to confirm" />
+        <div class="row">
+          <button type="submit" class="primary">Confirm</button>
+          <button type="button" id="stepup-cancel" class="ghost">Cancel</button>
+        </div>
+        <p id="stepup-error" class="error-text hidden" role="alert"></p>
+      </div>
+    </form>
+  </div>
+
+  <script src="/vendor/webauthn.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -10,7 +10,8 @@ server.listen(env.port, () => {
       `mechanical ${env.models.mechanical} (${env.effort.mechanical}), ` +
       `orchestrator ${env.models.orchestrator} (${env.effort.orchestrator})`,
   );
-  if (!env.password) console.warn('[lexis] LEXIS_PASSWORD is not set: nobody can sign in until it is.');
+  if (!env.password) console.warn('[lexis] LEXIS_PASSWORD is not set: only passkeys can sign in, and none can be set up until it is.');
+  if (!env.publicUrl) console.log('[lexis] LEXIS_PUBLIC_URL is not set: passkeys bind to whatever host the browser uses.');
   const credential = detectCredential();
   console.log(
     credential === 'none'

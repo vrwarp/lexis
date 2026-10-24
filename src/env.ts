@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,8 +38,13 @@ export const env = {
   dataDir,
   projectsDir: path.join(dataDir, 'projects'),
   claudeConfigDir: path.resolve(str('CLAUDE_CONFIG_DIR', path.join(dataDir, 'claude'))),
+  authDir: path.join(dataDir, 'auth'),
+  /** The password: the first way in, and always the backup once passkeys exist. */
   password: str('LEXIS_PASSWORD', ''),
-  sessionSecret: str('SESSION_SECRET', ''),
+  /** e.g. https://lexis.example.com. Pins the passkey origin and the allowed request origin. */
+  publicUrl: str('LEXIS_PUBLIC_URL', '').replace(/\/+$/, ''),
+  /** Express `trust proxy`: set to the number of reverse proxies in front (usually 1). */
+  trustProxy: trustProxy(str('LEXIS_TRUST_PROXY', '0')),
   cookieSecure: str('COOKIE_SECURE', '0') === '1',
   debug: Boolean(process.env.LEXIS_DEBUG),
   models: {
@@ -55,35 +59,18 @@ export const env = {
   },
 };
 
+function trustProxy(v: string): boolean | number | string {
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? n : v;
+}
+
 export type Tier = 'translation' | 'mechanical';
 
 export function ensureDirs(): void {
   for (const d of [env.dataDir, env.projectsDir, env.claudeConfigDir]) fs.mkdirSync(d, { recursive: true });
-}
-
-/**
- * SESSION_SECRET when set; otherwise a key made once and kept in the data
- * directory, so a container restart does not sign the browser out.
- */
-let secretCache: string | null = null;
-export function sessionSecret(): string {
-  if (secretCache) return secretCache;
-  if (env.sessionSecret) return (secretCache = env.sessionSecret);
-  const file = path.join(env.dataDir, 'session-secret');
-  try {
-    const saved = fs.readFileSync(file, 'utf8').trim();
-    if (saved.length >= 32) return (secretCache = saved);
-  } catch {
-    // not made yet
-  }
-  const fresh = crypto.randomBytes(32).toString('hex');
-  try {
-    fs.mkdirSync(env.dataDir, { recursive: true });
-    fs.writeFileSync(file, fresh, { mode: 0o600 });
-  } catch (err) {
-    console.warn('[lexis] could not keep the session secret in the data directory; logins end at the next restart', err);
-  }
-  return (secretCache = fresh);
+  fs.mkdirSync(env.authDir, { recursive: true, mode: 0o700 });
 }
 
 /**

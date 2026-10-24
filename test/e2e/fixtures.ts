@@ -1,15 +1,44 @@
 import os from 'node:os';
 import path from 'node:path';
-import { type Page, expect, test as base } from '@playwright/test';
+import { type BrowserContext, type CDPSession, type Page, expect, test as base } from '@playwright/test';
 import { makeEpub } from '../support/epub.js';
 
 export const PASSWORD = 'e2e-password';
 
-export async function signIn(page: Page): Promise<void> {
+/** Sign in with the password, and wave off the passkey setup prompt it brings up. */
+export async function signIn(page: Page, opts: { keepPrompt?: boolean } = {}): Promise<void> {
   await page.goto('/');
-  await page.getByPlaceholder('Password').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInWithPassword(page);
+  if (!opts.keepPrompt) {
+    await expect(page.locator('#passkey-setup')).toBeVisible();
+    await page.getByRole('button', { name: 'Not now' }).click();
+  }
+}
+
+export async function signInWithPassword(page: Page, password = PASSWORD): Promise<void> {
+  await page.getByPlaceholder('Password', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Sign in with password' }).click();
   await expect(page.locator('#app')).toBeVisible();
+}
+
+export type Credential = Record<string, unknown>;
+
+/**
+ * Give the page a virtual platform authenticator (user-verifying, always
+ * approving), optionally holding passkeys made earlier.
+ */
+export async function virtualAuthenticator(context: BrowserContext, page: Page, credentials: Credential[] = []) {
+  const cdp: CDPSession = await context.newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
+    options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
+  });
+  for (const credential of credentials) await cdp.send('WebAuthn.addCredential', { authenticatorId, credential: credential as never });
+  return {
+    credentials: async () => (await cdp.send('WebAuthn.getCredentials', { authenticatorId })).credentials as unknown as Credential[],
+    /** Make the authenticator refuse, like a user dismissing the prompt. */
+    refuse: () => cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false }),
+  };
 }
 
 /** Create a project through the sidebar form and wait for its view. */

@@ -96,8 +96,13 @@ jobs:
           curl -fsS http://127.0.0.1:8080/ | grep -q 'id="login-screen"'
           # The API refuses without the cookie, and lets the password in.
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/projects)" = 401
-          curl -fsS -c jar -H 'content-type: application/json' -d '{"password":"ci-dry-run"}' http://127.0.0.1:8080/api/login
+          curl -fsS -c jar -H 'content-type: application/json' -d '{"password":"ci-dry-run"}' http://127.0.0.1:8080/api/auth/password
           curl -fsS -b jar http://127.0.0.1:8080/api/projects | grep -q '^\[\]$'
+          # Security headers, the passkey helper, and refusal of cross-site writes.
+          curl -fsSI http://127.0.0.1:8080/ | grep -qi "^content-security-policy: default-src 'self'"
+          curl -fsS http://127.0.0.1:8080/vendor/webauthn.js | grep -q SimpleWebAuthnBrowser
+          test "$(curl -s -o /dev/null -w '%{http_code}' -b jar -H 'origin: https://evil.example' -X POST http://127.0.0.1:8080/api/auth/sessions/revoke-others)" = 403
+          docker exec lexis node dist/cli.js status | grep -q 'password sign-in: on'
           # Claude Code offers a subscription sign-in link from inside the container.
           curl -fsS -b jar -X POST http://127.0.0.1:8080/api/claude/login/start | grep -q '"url":"https://'
           curl -fsS -b jar -X POST http://127.0.0.1:8080/api/claude/login/cancel

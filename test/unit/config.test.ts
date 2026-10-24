@@ -17,7 +17,6 @@ async function boot(vars: Record<string, string>) {
   return {
     dataDir,
     env: await import('../../src/env.js'),
-    auth: await import('../../src/auth.js'),
     agents: await import('../../src/agents.js'),
   };
 }
@@ -48,38 +47,6 @@ describe('model tiers', () => {
     expect(all['primary-translator']).toMatchObject({ model: 'claude-fable-5-1', effort: 'xhigh' });
     expect(all['toc-generator']).toMatchObject({ model: 'claude-haiku-5-5', effort: 'medium' });
     expect(env.env.models.orchestrator).toBe('claude-haiku-5-5');
-  });
-});
-
-describe('app sign-in', () => {
-  it('accepts only the configured password, and none when it is unset', async () => {
-    expect((await boot({ LEXIS_PASSWORD: 'correct horse' })).auth.checkPassword('correct horse')).toBe(true);
-    expect((await boot({ LEXIS_PASSWORD: 'correct horse' })).auth.checkPassword('correct')).toBe(false);
-    expect((await boot({ LEXIS_PASSWORD: '' })).auth.checkPassword('')).toBe(false);
-  });
-
-  it('verifies its own tokens and rejects forged or expired ones', async () => {
-    const { auth } = await boot({ SESSION_SECRET: 'one' });
-    const t = auth.makeToken();
-    expect(auth.verifyToken(t)).toBe(true);
-    expect(auth.isSignedIn(`a=1; ${auth.AUTH_COOKIE}=${t}`)).toBe(true);
-    const [ts, sig] = t.split('.');
-    expect(auth.verifyToken(`${ts}.${sig}x`)).toBe(false);
-    expect(auth.verifyToken(undefined)).toBe(false);
-    expect(auth.verifyToken('.')).toBe(false);
-    const old = (Date.now() - 31 * 24 * 3600 * 1000).toString(36);
-    expect(auth.verifyToken(`${old}.${sig}`)).toBe(false);
-    expect((await boot({ SESSION_SECRET: 'two' })).auth.verifyToken(t)).toBe(false);
-  });
-
-  it('keeps a generated secret in the data directory so sign-ins survive a restart', async () => {
-    const first = await boot({});
-    const t = first.auth.makeToken();
-    vi.resetModules();
-    const env2 = await import('../../src/env.js');
-    const auth2 = await import('../../src/auth.js');
-    expect(env2.env.dataDir).toBe(first.dataDir);
-    expect(auth2.verifyToken(t)).toBe(true);
   });
 });
 

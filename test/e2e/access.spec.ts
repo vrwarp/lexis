@@ -1,17 +1,33 @@
-import { PASSWORD, expect, signIn, test } from './fixtures.js';
+import { PASSWORD, expect, signIn, signInWithPassword, test } from './fixtures.js';
 
 test.describe('password gate', () => {
   test('shows only the sign-in screen until the password is entered', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#login-screen')).toBeVisible();
     await expect(page.locator('#app')).toBeHidden();
-    await expect(page.getByPlaceholder('Password')).toBeFocused();
+    await expect(page.getByPlaceholder('Password', { exact: true })).toBeFocused();
+    // No passkey exists on this server, so none is offered.
+    await expect(page.getByRole('button', { name: /Sign in with a passkey/ })).toBeHidden();
+  });
+
+  test('prompts to set up a passkey after a password sign-in, once per tab', async ({ page }) => {
+    await signIn(page, { keepPrompt: true });
+    await expect(page.getByRole('dialog', { name: 'Protect lexis with a passkey' })).toBeVisible();
+    await expect(page.locator('#passkey-setup')).toContainText('The password keeps working as a backup');
+    await page.getByRole('button', { name: 'Not now' }).click();
+    await expect(page.locator('#security-dot')).toHaveClass(/bad/);
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+    await signInWithPassword(page);
+    await expect(page.locator('#passkey-setup')).toBeHidden();
+    // The sidebar still offers it.
+    await page.getByRole('button', { name: /Security/ }).click();
+    await expect(page.locator('#passkey-setup')).toBeVisible();
   });
 
   test('rejects a wrong password with a message', async ({ page }) => {
     await page.goto('/');
-    await page.getByPlaceholder('Password').fill('not-it');
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByPlaceholder('Password', { exact: true }).fill('not-it');
+    await page.getByRole('button', { name: 'Sign in with password' }).click();
     await expect(page.getByRole('alert')).toHaveText('Wrong password');
     await expect(page.locator('#app')).toBeHidden();
   });
@@ -36,9 +52,7 @@ test.describe('password gate', () => {
     await page.evaluate(() => fetch('/api/projects').then(() => undefined));
     await page.reload();
     await expect(page.locator('#login-screen')).toBeVisible();
-    await page.getByPlaceholder('Password').fill(PASSWORD);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.locator('#app')).toBeVisible();
+    await signInWithPassword(page, PASSWORD);
   });
 
   test('refuses to start a translation before Claude is linked', async ({ page }) => {

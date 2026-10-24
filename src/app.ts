@@ -4,7 +4,8 @@ import path from 'node:path';
 import express from 'express';
 import multer from 'multer';
 import { WebSocketServer, WebSocket } from 'ws';
-import { LOGIN_SECONDS, checkPassword, cookieHeader, isSignedIn, makeToken, requireAuth } from './auth.js';
+import { createRequire } from 'node:module';
+import { Auth, originAllowed, securityHeaders } from './auth/http.js';
 import { ClaudeLogin, LoginError, envCredentialShadowsLogin, probeAuth, readAccount } from './claude.js';
 import { CREDENTIAL_LABEL, detectCredential, ensureDirs, env } from './env.js';
 import { coverMime, replaceCover } from './epub.js';
@@ -12,49 +13,60 @@ import { sessionFor } from './orchestrator.js';
 import { createProject, getProject, listProjects, type Project } from './projects.js';
 import { listVersions, revertToVersion, saveVersion } from './versioning.js';
 
+/** A file inside a package that doesn't export it: find the package root from its entry point. */
+function browserBundle(pkg: string, rel: string): string {
+  let dir = path.dirname(createRequire(import.meta.url).resolve(pkg));
+  // Sub-folders may hold stub package.json files ({"type": "commonjs"}): look for the one naming the package.
+  const named = (d: string) => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(d, 'package.json'), 'utf8')).name === pkg;
+    } catch {
+      return false;
+    }
+  };
+  while (!named(dir)) {
+    if (path.dirname(dir) === dir) throw new Error(`cannot find the root of ${pkg}`);
+    dir = path.dirname(dir);
+  }
+  return path.join(dir, rel);
+}
+
 /**
- * The whole web app: static UI, password gate, project API, Claude link and
- * the live event WebSocket. `server.ts` listens; tests mount it on any port.
+ * The whole web app: static UI, sign-in (password, then passkeys), project
+ * API, Claude link and the live event WebSocket. `server.ts` listens; tests
+ * mount it on any port.
  */
 export function createServer(): http.Server {
   ensureDirs();
 
+  const auth = new Auth();
+  const webauthnBrowser = browserBundle('@simplewebauthn/browser', 'dist/bundle/index.umd.min.js');
+
   const app = express();
-  app.set('trust proxy', true);
+  app.set('trust proxy', env.trustProxy);
+  app.disable('x-powered-by');
+  app.use(securityHeaders);
+  // Cross-site writes are refused outright; SameSite=Strict cookies already keep them signed out.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !originAllowed(req.get('origin'), req)) {
+      res.status(403).json({ error: 'cross-site request refused' });
+      return;
+    }
+    next();
+  });
   app.use(express.json());
   app.use(express.static(path.join(env.root, 'public')));
+  app.get('/vendor/webauthn.js', (_req, res) => res.sendFile(webauthnBrowser));
 
   app.get('/healthz', (_req, res) => {
     res.json({ ok: true });
   });
 
-  // ---------- app sign-in ----------
+  // ---------- sign-in ----------
 
-  app.get('/api/session', (req, res) => {
-    res.json({ signedIn: isSignedIn(req.headers.cookie), passwordSet: Boolean(env.password) });
-  });
-
-  app.post('/api/login', (req, res) => {
-    if (!env.password) {
-      res.status(503).json({ error: 'LEXIS_PASSWORD is not set on the server' });
-      return;
-    }
-    const password = (req.body as { password?: unknown } | undefined)?.password;
-    if (typeof password !== 'string' || !checkPassword(password.slice(0, 500))) {
-      res.status(401).json({ error: 'Wrong password' });
-      return;
-    }
-    res.setHeader('Set-Cookie', cookieHeader(makeToken(), LOGIN_SECONDS));
-    res.json({ ok: true });
-  });
-
-  app.post('/api/logout', (_req, res) => {
-    res.setHeader('Set-Cookie', cookieHeader('', 0));
-    res.json({ ok: true });
-  });
-
-  // Everything below needs the signed cookie.
-  app.use('/api', requireAuth);
+  app.use('/api/auth', auth.router());
+  // Everything else under /api needs a live session.
+  app.use('/api', auth.require);
 
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
 
@@ -479,7 +491,11 @@ export function createServer(): http.Server {
   const wss = new WebSocketServer({ server, path: '/ws' });
 
   wss.on('connection', (ws: WebSocket, req) => {
-    if (!isSignedIn(req.headers.cookie)) {
+    if (!originAllowed(req.headers.origin, req)) {
+      ws.close(4003, 'cross-site connection refused');
+      return;
+    }
+    if (!auth.session(req.headers.cookie)) {
       ws.close(4001, 'sign-in required');
       return;
     }

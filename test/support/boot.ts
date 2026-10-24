@@ -17,7 +17,7 @@ export function freshEnv(vars: Record<string, string | undefined> = {}): string 
   vi.resetModules();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lexis-test-'));
   process.env = { ...pristine, LEXIS_DATA_DIR: dataDir, CLAUDE_BINARY: FAKE_CLAUDE, LEXIS_PASSWORD: 'test-password' };
-  for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'DATA_DIR', 'SESSION_SECRET']) {
+  for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'DATA_DIR', 'LEXIS_PUBLIC_URL', 'LEXIS_TRUST_PROXY', 'COOKIE_SECURE']) {
     delete process.env[k];
   }
   for (const [k, v] of Object.entries(vars)) {

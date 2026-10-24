@@ -12,12 +12,13 @@ signs in with your **Claude subscription** from the browser — no API key neede
 ## Deploy (Docker)
 
 ```sh
-cp .env.example .env        # set LEXIS_PASSWORD (and COOKIE_SECURE=0 if not behind https)
+cp .env.example .env        # set LEXIS_PASSWORD and LEXIS_PUBLIC_URL
 docker compose up -d --build
 ```
 
-Open `http://<host>:8080`, enter the password, then click **Claude** at the
-bottom of the sidebar → **Sign in with Claude**. Open the link, approve with
+Put it behind your https reverse proxy, open `LEXIS_PUBLIC_URL`, sign in with
+the password and create a passkey when asked (see [Security](#security)). Then
+click **Claude** at the bottom of the sidebar → **Sign in with Claude**. Open the link, approve with
 the account that has your subscription, paste the code back. The login is kept
 in the `/data` volume along with every project, so it survives restarts and
 upgrades.
@@ -30,6 +31,41 @@ Opus access.
 
 Merges to `main` that pass CI are pushed to Docker Hub (see [CI](#ci)), so a
 host can also run the published image instead of building.
+
+## Security
+
+lexis runs agents with full tool access inside its container and holds your
+Claude login, so the web UI is locked down for being on the internet:
+
+- **Passkeys first, password as backup.** Sign in with the password the first
+  time and lexis asks you to create a passkey (Face ID, Touch ID, Windows Hello,
+  a phone, or a security key). From then on the sign-in screen leads with the
+  passkey; the password keeps working as the backup for a device without one.
+  Passkeys require user verification, are bound to `LEXIS_PUBLIC_URL`, and
+  can't be phished. Manage them under **Security** in the sidebar.
+- **Password attempt limits.** 5 wrong passwords per client address and 20
+  overall per 15 minutes, then `429`. Set `LEXIS_TRUST_PROXY` so the limit sees
+  real client addresses behind a proxy. Because the password stays valid, make
+  it long and random.
+- **Real sessions.** The cookie is a random token (`HttpOnly`, `SameSite=Strict`,
+  `__Host-` over https); only its hash is stored. Signing out ends it on the
+  server, sessions expire after 14 idle days or 30 days in all, and **Security**
+  lists every signed-in browser with a sign-out button for each.
+- **Confirm before changing sign-in.** Adding or removing a passkey needs a
+  sign-in or confirmation (passkey, or the password) from the last 10 minutes,
+  so a stolen session alone can't plant its own passkey.
+- **Same-origin only.** Writes and WebSocket connections from any other origin
+  are refused; strict Content-Security-Policy, `frame-ancestors 'none'`,
+  `nosniff`, `no-referrer`, and HSTS over https.
+
+Lost a device? Sign in with the password and remove its passkey, or from the
+host:
+
+```sh
+docker compose exec lexis node dist/cli.js status          # passkeys and signed-in browsers
+docker compose exec lexis node dist/cli.js signout-all     # end every session
+docker compose exec lexis node dist/cli.js reset-passkeys  # forget all passkeys and sessions
+```
 
 ## Models
 
@@ -79,10 +115,12 @@ door to the Agent SDK; the tests swap it for a scripted fake
 (`test/support/fake-sdk.ts`) that plays back SDK messages and calls the
 lexis tools for real, writing files into the workspace and stopping at the
 review gate. The browser sign-in drives a fake `claude` binary
-(`test/support/fake-claude.mjs`, accepts the code `good-code`). The Playwright
-run boots two copies of the app (`test/e2e/server.ts`): one with no Claude
-login for the password and sign-in flows, one already linked for the
-translation workflow. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use a Chromium
+(`test/support/fake-claude.mjs`, accepts the code `good-code`). The passkey tests
+use a software authenticator (`test/support/authenticator.ts`) in vitest and
+Chromium's virtual authenticator in Playwright. The Playwright run boots three
+copies of the app (`test/e2e/server.ts`): one with no Claude login for the
+password and Claude sign-in flows, one already linked for the translation
+workflow, and one for the passkey journey. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use a Chromium
 you already have.
 
 ### CI
@@ -167,8 +205,9 @@ prompt (sequencing rules, review gate, versioning contract) is in
 | `POST /api/projects/:id/cover`, `POST /api/projects/:id/repackage` | custom cover |
 | `GET /api/projects/:id/download` | the translated EPUB |
 | `GET /ws?project=<id>&after=<seq>` | live event stream (replays history first) |
-| `POST /api/login`, `POST /api/logout`, `GET /api/session` | app password sign-in |
+| `GET /api/auth/state`, `POST /api/auth/password`, `POST /api/auth/passkey/{options,verify}`, `POST /api/auth/logout` | sign-in |
+| `GET /api/auth/security`, `POST /api/auth/passkeys/{options,verify}`, `POST /api/auth/passkeys/:id/rename`, `DELETE /api/auth/passkeys/:id`, `DELETE /api/auth/sessions/:id`, `POST /api/auth/sessions/revoke-others`, `POST /api/auth/stepup/…` | passkeys, sessions, confirmation |
 | `GET /api/claude`, `POST /api/claude/login/{start,code,cancel}`, `POST /api/claude/logout` | link the container to a Claude subscription |
 | `GET /healthz` | health check (no sign-in) |
 
-Everything under `/api` (except sign-in) and `/ws` needs the signed cookie.
+Everything under `/api` (except sign-in) and `/ws` needs a session cookie.
