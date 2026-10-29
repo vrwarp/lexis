@@ -20,8 +20,12 @@ if (process.env.E2E_LINKED === '1') {
 }
 
 const { sdk } = await import('../../src/sdk.js');
-const { fakeQuery, pipelineScenario } = await import('../support/fake-sdk.js');
-sdk.query = fakeQuery(pipelineScenario, () => ({ email: 'reader@example.com', subscriptionType: 'max' }));
+const { fake, fakeQuery } = await import('../support/fake-sdk.js');
+fake.delayMs = Number(process.env.E2E_STEP_MS ?? 40);
+sdk.query = fakeQuery(undefined, () => ({ email: 'reader@example.com', subscriptionType: 'max' }));
+const { timing } = await import('../../src/engine/engine.js');
+timing.transientBackoffMs = [50, 50];
+timing.bootDelayMs = 50;
 const { createServer } = await import('../../src/app.js');
 const port = Number(process.env.PORT ?? 4801);
 // All interfaces: the browser uses localhost, which passkeys need (an IP is not a valid RP ID).

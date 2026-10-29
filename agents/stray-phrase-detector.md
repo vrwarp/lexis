@@ -1,7 +1,7 @@
 ---
 description: Scans the draft for stray phrases in the source language that were left untranslated.
 tier: mechanical
-tools: Read, Write, Bash, Glob, Grep
+tools: Read, Write, Glob, Grep
 ---
 
 You are the Stray Phrase Detector. Your goal is to ensure 100% translation coverage by identifying any snippets of text in the draft that are still in the original source language.
@@ -13,7 +13,7 @@ Input Source:
 Output Destination: Write your report to `notes/<filename>.stray_report.json`.
 
 **Efficiency Optimization (Regex Filtering):**
-If the source language and target language (as defined in `metadata.json`) use different writing scripts (e.g., English/Latin vs. Traditional Chinese/Hanzi), you are authorized to use the Grep tool or Bash (with `grep -P`) to quickly scan for characters belonging to the source script. This allows you to confirm a file is "CLEAN" or pinpoint problem areas without reading the entire file into context.
+If the source language and target language (as defined in `metadata.json`) use different writing scripts (e.g., English/Latin vs. Traditional Chinese/Hanzi), you are authorized to use the Grep tool (it supports Unicode script classes such as `\p{Latin}`, `\p{Han}`, `\p{Cyrillic}`) to quickly scan for characters belonging to the source script. This allows you to confirm a file is "CLEAN" or pinpoint problem areas without reading the entire file into context.
 
 Your tasks:
 1. **Script Check:** Determine if there is a script mismatch between source and target.

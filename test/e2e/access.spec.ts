@@ -60,11 +60,9 @@ test.describe('password gate', () => {
     await expect(page.locator('#claude-label')).toHaveText('Claude not linked — sign in');
     const { newProject } = await import('./fixtures.js');
     await newProject(page, { name: 'Unlinked Book' });
-    const dialog = page.waitForEvent('dialog');
     await page.getByRole('button', { name: /Start translation/ }).click();
-    const d = await dialog;
-    expect(d.message()).toMatch(/Claude is not linked/);
-    await d.dismiss();
+    await expect(page.locator('#run-notice')).toContainText('Claude is not linked yet');
     await expect(page.locator('#project-status')).toHaveText('new');
+    await expect(page.locator('#run-state')).toHaveText('Not started');
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { orchestratorPrompt } from '../../src/prompt.js';
+import { assistantPrompt } from '../../src/prompt.js';
 import type { ProjectMeta } from '../../src/types.js';
 
 const meta = (over: Partial<ProjectMeta> = {}): ProjectMeta => ({
@@ -14,27 +14,18 @@ const meta = (over: Partial<ProjectMeta> = {}): ProjectMeta => ({
   ...over,
 });
 
-describe('orchestratorPrompt', () => {
-  it('carries the target language and the user context verbatim', () => {
-    const p = orchestratorPrompt(meta());
+describe('assistantPrompt', () => {
+  it('carries the target language and the user instructions verbatim', () => {
+    const p = assistantPrompt(meta());
     expect(p).toContain('Target language: Traditional Chinese (Taiwan)');
-    expect(p).toContain('User-provided context / instructions: Young adult readers');
+    expect(p).toContain("The user's instructions: Young adult readers");
+    expect(assistantPrompt(meta({ context: '' }))).toContain('(none)');
   });
 
-  it('says when there is no context', () => {
-    expect(orchestratorPrompt(meta({ context: '' }))).toContain('(none provided)');
-  });
-
-  it('names every pipeline agent and every lexis tool it must use', async () => {
-    const p = orchestratorPrompt(meta());
-    const { loadAgents } = await import('../../src/agents.js');
-    for (const agent of Object.keys(loadAgents())) expect(p, agent).toContain(`\`${agent}\``);
-    for (const t of ['report_progress', 'save_version', 'list_versions', 'revert_version', 'request_review', 'mark_complete']) {
-      expect(p, t).toContain(`\`${t}\``);
-    }
-  });
-
-  it('keeps the review gate mandatory before packaging', () => {
-    expect(orchestratorPrompt(meta())).toMatch(/MUST NOT package until `request_review` returns an approval/);
+  it('names every engine tool and keeps the assistant out of the translating', () => {
+    const p = assistantPrompt(meta());
+    for (const t of ['pipeline_status', 'rerun_chapters', 'set_note', 'save_version', 'pause_run', 'resume_run']) expect(p, t).toContain(`\`${t}\``);
+    expect(p).toMatch(/never translate, summarize or critique text yourself/);
+    expect(p).toMatch(/Never edit `original\/`/);
   });
 });

@@ -44,15 +44,18 @@ export class Project {
     this.meta.status = status;
     if (status === 'error' && detail) this.meta.lastError = detail;
     this.save();
-    this.emit('status', 'orchestrator', { status, detail });
+    this.emit('status', 'engine', { status, detail });
   }
 
-  emit(type: UiEventType, agent: string, data: Record<string, unknown>): UiEvent {
+  emit(type: UiEventType, agent: string, data: Record<string, unknown>, where: { step?: string; run?: string; chapter?: string } = {}): UiEvent {
     const event: UiEvent = {
       seq: ++this.seq,
       ts: new Date().toISOString(),
       type,
       agent,
+      ...(where.step ? { step: where.step } : {}),
+      ...(where.run ? { run: where.run } : {}),
+      ...(where.chapter ? { chapter: where.chapter } : {}),
       data,
     };
     fs.appendFileSync(this.eventsFile, JSON.stringify(event) + '\n');
@@ -71,14 +74,19 @@ export class Project {
     return () => this.listeners.delete(listener);
   }
 
-  readEvents(afterSeq = 0): UiEvent[] {
+  /** Events after `afterSeq`; `only` narrows to one step, one agent run or one chapter. */
+  readEvents(afterSeq = 0, only: { step?: string; run?: string; chapter?: string } = {}): UiEvent[] {
     if (!fs.existsSync(this.eventsFile)) return [];
     const lines = fs.readFileSync(this.eventsFile, 'utf8').split('\n').filter(Boolean);
     const events: UiEvent[] = [];
     for (const line of lines) {
       try {
         const event = JSON.parse(line) as UiEvent;
-        if (event.seq > afterSeq) events.push(event);
+        if (event.seq <= afterSeq) continue;
+        if (only.run && event.run !== only.run) continue;
+        if (only.step && event.step !== only.step) continue;
+        if (only.chapter && event.chapter !== only.chapter) continue;
+        events.push(event);
       } catch {
         // skip corrupt lines
       }
@@ -96,10 +104,8 @@ function loadFromDisk(): void {
     if (!fs.existsSync(metaFile)) continue;
     try {
       const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8')) as ProjectMeta;
-      // A server restart interrupts any in-flight run.
-      if (meta.status === 'running' || meta.status === 'awaiting_review') {
-        meta.status = 'awaiting_input';
-      }
+      // A server restart interrupts any in-flight run; the engine resumes it and sets the status again.
+      if (meta.status === 'running') meta.status = 'paused';
       projects.set(id, new Project(meta));
     } catch {
       // skip corrupt projects

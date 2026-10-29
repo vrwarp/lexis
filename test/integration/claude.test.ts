@@ -21,11 +21,11 @@ describe('/api/claude', () => {
       shadowedByEnv: false,
       hasLoginFile: false,
       inProgress: null,
-      models: { translation: 'claude-opus-5-5', mechanical: 'claude-sonnet-5-5', orchestrator: 'claude-sonnet-5-5' },
-      effort: { translation: 'high', mechanical: 'medium', orchestrator: 'medium' },
+      models: { translation: 'claude-opus-5-5', mechanical: 'claude-sonnet-5-5', assistant: 'claude-sonnet-5-5' },
+      effort: { translation: 'high', mechanical: 'medium', assistant: 'medium' },
     });
     const p = await s.createProject();
-    const r = await s.request(`/api/projects/${p.id}/start`, { method: 'POST' });
+    const r = await s.request(`/api/projects/${p.id}/run/start`, { method: 'POST' });
     expect(r.status).toBe(409);
     expect((await r.json()).error).toMatch(/Claude is not linked/);
   });

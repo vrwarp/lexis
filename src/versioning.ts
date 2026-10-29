@@ -30,7 +30,7 @@ export async function saveVersion(
   const message = (auto ? AUTO_PREFIX : '') + label;
   await git(project, 'commit', '-qm', message);
   const version = (await listVersions(project))[0];
-  project.emit('version', 'orchestrator', { version: version as unknown as Record<string, unknown> });
+  project.emit('version', 'engine', { version: version as unknown as Record<string, unknown> });
   return version;
 }
 

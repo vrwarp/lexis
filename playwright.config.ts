@@ -24,7 +24,7 @@ export default defineConfig({
   projects: [
     // localhost, not 127.0.0.1: a secure context with a host name, as passkeys require.
     { name: 'gate', testMatch: /(access|claude-link)\.spec\.ts/, use: { baseURL: `http://localhost:${GATE}` } },
-    { name: 'studio', testMatch: /(translation|workspace)\.spec\.ts/, use: { baseURL: `http://localhost:${STUDIO}` } },
+    { name: 'studio', testMatch: /(translation|workspace|control)\.spec\.ts/, use: { baseURL: `http://localhost:${STUDIO}` } },
     { name: 'keys', testMatch: /passkeys\.spec\.ts/, use: { baseURL: `http://localhost:${KEYS}` } },
   ],
   webServer: [

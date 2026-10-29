@@ -9,7 +9,9 @@ import { Auth, originAllowed, securityHeaders } from './auth/http.js';
 import { ClaudeLogin, LoginError, envCredentialShadowsLogin, probeAuth, readAccount } from './claude.js';
 import { CREDENTIAL_LABEL, detectCredential, ensureDirs, env } from './env.js';
 import { coverMime, replaceCover } from './epub.js';
-import { sessionFor } from './orchestrator.js';
+import { assistantFor } from './assistant.js';
+import { bootEngines, engineFor } from './engine/engine.js';
+import { RERUN_STAGES, type ChapterStage } from './types.js';
 import { createProject, getProject, listProjects, type Project } from './projects.js';
 import { listVersions, revertToVersion, saveVersion } from './versioning.js';
 
@@ -38,6 +40,7 @@ function browserBundle(pkg: string, rel: string): string {
  */
 export function createServer(): http.Server {
   ensureDirs();
+  bootEngines(listProjects());
 
   const auth = new Auth();
   const webauthnBrowser = browserBundle('@simplewebauthn/browser', 'dist/bundle/index.umd.min.js');
@@ -133,7 +136,8 @@ export function createServer(): http.Server {
       res.json({
         ...project.meta,
         versions: await listVersions(project),
-        awaitingReview: sessionFor(project).awaitingReview,
+        awaitingReview: engineFor(project).runState === 'awaiting_review',
+        run: engineFor(project).state.run,
       });
     }),
   );
@@ -142,23 +146,143 @@ export function createServer(): http.Server {
     const project = requireProject(req, res);
     if (!project) return;
     const after = Number(req.query.after ?? 0);
-    res.json(project.readEvents(after));
+    const q = (k: string) => (typeof req.query[k] === 'string' ? String(req.query[k]) : undefined);
+    res.json(project.readEvents(after, { run: q('run'), step: q('step'), chapter: q('chapter') }));
   });
 
-  // ---------- orchestration ----------
+  // ---------- the run ----------
+
+  app.get('/api/projects/:id/pipeline', (req, res) => {
+    const project = requireProject(req, res);
+    if (!project) return;
+    res.json(engineFor(project).snapshot());
+  });
+
+  // Step ids contain a slash (chapter1.xhtml/draft), hence the query parameter.
+  app.get('/api/projects/:id/step', (req, res) => {
+    const project = requireProject(req, res);
+    if (!project) return;
+    const step = engineFor(project).step(String(req.query.id ?? ''));
+    if (!step) {
+      res.status(404).json({ error: 'unknown step' });
+      return;
+    }
+    res.json(step);
+  });
+
+  const body = (req: express.Request) => (req.body ?? {}) as Record<string, unknown>;
 
   app.post(
-    '/api/projects/:id/start',
+    '/api/projects/:id/run/start',
     wrap(async (req, res) => {
       const project = requireProject(req, res);
       if (!project) return;
       if (!requireClaude(res)) return;
-      const session = sessionFor(project);
-      session.send(
-        `Begin the translation of source.epub into ${project.meta.targetLanguage}. ` +
-          (project.meta.context ? `User context: ${project.meta.context}. ` : '') +
-          `Run the full pipeline from Preparation onward. If the workspace already contains partial pipeline output (original/, notes/, draft/, final/), assess what is already done and continue from there instead of redoing completed work.`,
-      );
+      engineFor(project).start();
+      res.json({ ok: true, run: engineFor(project).state.run });
+    }),
+  );
+  for (const action of ['pause', 'resume', 'stop'] as const) {
+    app.post(
+      `/api/projects/:id/run/${action}`,
+      wrap(async (req, res) => {
+        const project = requireProject(req, res);
+        if (!project) return;
+        const engine = engineFor(project);
+        if (action === 'resume' && !requireClaude(res)) return;
+        if (action === 'pause') engine.pause();
+        else if (action === 'resume') engine.resume();
+        else engine.stop();
+        res.json({ ok: true, run: engine.state.run });
+      }),
+    );
+  }
+
+  app.put(
+    '/api/projects/:id/run/concurrency',
+    wrap(async (req, res) => {
+      const project = requireProject(req, res);
+      if (!project) return;
+      const n = Number(body(req).concurrency);
+      if (!Number.isInteger(n) || n < 1 || n > 8) {
+        res.status(400).json({ error: 'concurrency must be an integer from 1 to 8' });
+        return;
+      }
+      engineFor(project).setConcurrency(n);
+      res.json({ ok: true, concurrency: engineFor(project).state.config.concurrency });
+    }),
+  );
+
+  app.put(
+    '/api/projects/:id/instructions',
+    wrap(async (req, res) => {
+      const project = requireProject(req, res);
+      if (!project) return;
+      const context = body(req).context;
+      if (typeof context !== 'string' || context.length > 20_000) {
+        res.status(400).json({ error: 'context must be a string of at most 20000 characters' });
+        return;
+      }
+      engineFor(project).setInstructions(context.trim());
+      res.json({ ok: true, context: project.meta.context });
+    }),
+  );
+
+  app.patch(
+    '/api/projects/:id/chapters/:key',
+    wrap(async (req, res) => {
+      const project = requireProject(req, res);
+      if (!project) return;
+      const engine = engineFor(project);
+      if (!engine.chapter(String(req.params.key))) {
+        res.status(404).json({ error: 'unknown chapter' });
+        return;
+      }
+      const b = body(req);
+      const patch: { excluded?: boolean; note?: string; title?: string } = {};
+      if (typeof b.excluded === 'boolean') patch.excluded = b.excluded;
+      if (typeof b.note === 'string') patch.note = b.note.slice(0, 4000);
+      if (typeof b.title === 'string') patch.title = b.title;
+      res.json(engine.setChapter(String(req.params.key), patch));
+    }),
+  );
+
+  app.post(
+    '/api/projects/:id/chapters/rerun',
+    wrap(async (req, res) => {
+      const project = requireProject(req, res);
+      if (!project) return;
+      if (!requireClaude(res)) return;
+      const b = body(req);
+      const chapters = Array.isArray(b.chapters) ? b.chapters.filter((x): x is string => typeof x === 'string') : [];
+      const from = String(b.from ?? 'critique') as ChapterStage;
+      if (!chapters.length || !RERUN_STAGES.includes(from)) {
+        res.status(400).json({ error: `chapters[] and from (${RERUN_STAGES.join('|')}) are required` });
+        return;
+      }
+      const note = typeof b.note === 'string' ? b.note.slice(0, 4000) : undefined;
+      res.json({ ok: true, chapters: await engineFor(project).rerunChapters(chapters, from, note) });
+    }),
+  );
+
+  app.post(
+    '/api/projects/:id/steps/retry',
+    wrap(async (req, res) => {
+      const project = requireProject(req, res);
+      if (!project) return;
+      if (!requireClaude(res)) return;
+      const id = String(body(req).id ?? '');
+      const engine = engineFor(project);
+      if (!engine.step(id)) {
+        res.status(404).json({ error: 'unknown step' });
+        return;
+      }
+      try {
+        engine.retryStep(id);
+      } catch (e) {
+        res.status(409).json({ error: (e as Error).message });
+        return;
+      }
       res.json({ ok: true });
     }),
   );
@@ -174,7 +298,7 @@ export function createServer(): http.Server {
         res.status(400).json({ error: 'text is required' });
         return;
       }
-      sessionFor(project).send(text);
+      assistantFor(project).send(text);
       res.json({ ok: true });
     }),
   );
@@ -184,13 +308,26 @@ export function createServer(): http.Server {
     wrap(async (req, res) => {
       const project = requireProject(req, res);
       if (!project) return;
-      const { decision, instructions } = req.body as { decision?: string; instructions?: string };
+      const b = body(req);
+      const decision = b.decision;
       if (decision !== 'approve' && decision !== 'revise') {
         res.status(400).json({ error: "decision must be 'approve' or 'revise'" });
         return;
       }
-      const resolved = sessionFor(project).resolveReview(decision, instructions);
-      if (!resolved) {
+      const engine = engineFor(project);
+      let ok: boolean;
+      if (decision === 'approve') ok = engine.approve();
+      else {
+        const instructions = typeof b.instructions === 'string' ? b.instructions.trim() : '';
+        if (!instructions) {
+          res.status(400).json({ error: 'instructions are required for another pass' });
+          return;
+        }
+        const chapters = Array.isArray(b.chapters) ? b.chapters.filter((x): x is string => typeof x === 'string') : undefined;
+        const from = typeof b.from === 'string' && RERUN_STAGES.includes(b.from as ChapterStage) ? (b.from as ChapterStage) : 'critique';
+        ok = await engine.revise({ chapters, from, instructions: instructions.slice(0, 4000) });
+      }
+      if (!ok) {
         res.status(409).json({ error: 'no review is pending' });
         return;
       }
@@ -203,7 +340,7 @@ export function createServer(): http.Server {
     wrap(async (req, res) => {
       const project = requireProject(req, res);
       if (!project) return;
-      await sessionFor(project).interrupt();
+      await assistantFor(project).interrupt();
       res.json({ ok: true });
     }),
   );
@@ -240,14 +377,14 @@ export function createServer(): http.Server {
         res.status(404).json({ error: 'unknown version' });
         return;
       }
-      const version = await revertToVersion(project, String(req.params.vid));
-      // Keep the orchestrator's mental model in sync if a session is live.
-      const session = sessionFor(project);
-      if (session.running) {
-        session.send(
-          `[The user reverted the workspace to version ${String(req.params.vid).slice(0, 8)} via the UI. Re-read the workspace state (notes/, draft/, final/) before doing anything else, and adjust your plan to match what actually exists now.]`,
-        );
+      const engine = engineFor(project);
+      if (engine.runState === 'running') {
+        res.status(409).json({ error: 'pause the run before reverting' });
+        return;
       }
+      const version = await revertToVersion(project, String(req.params.vid));
+      // The matrix now reflects the files that exist again.
+      engine.revalidate();
       res.json(version);
     }),
   );
@@ -365,9 +502,7 @@ export function createServer(): http.Server {
             .map((line) => `> ${line}`)
             .join('\n')}`
         : '';
-      sessionFor(project).send(
-        `[User comment on asset \`${filePath}\`]${quoted}\n\n${comment.trim()}`,
-      );
+      assistantFor(project).send(`[User comment on asset \`${filePath}\`]${quoted}\n\n${comment.trim()}`);
       res.json({ ok: true });
     }),
   );
@@ -414,11 +549,7 @@ export function createServer(): http.Server {
       const cover = path.join(project.workspace, project.meta.coverFilename);
       await replaceCover(epub, cover);
       await saveVersion(project, 'repackaged with custom cover');
-      project.emit('progress', 'orchestrator', {
-        phase: 'packaging',
-        state: 'completed',
-        detail: 'Repackaged with custom cover (deterministic, no agent involved)',
-      });
+      project.emit('agent_text', 'engine', { text: 'Repackaged with the custom cover (no agent involved).' });
       res.json({ ok: true });
     }),
   );

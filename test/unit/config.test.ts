@@ -25,12 +25,12 @@ describe('model tiers', () => {
   it('pins the strong model on translation and the cheaper one on everything else', async () => {
     const { agents } = await boot({});
     const all = agents.loadAgents();
-    expect(Object.keys(all)).toHaveLength(15);
+    expect(Object.keys(all)).toHaveLength(13);
     for (const name of ['primary-translator', 'final-translator', 'native-critique', 'critique-charter-generator', 'metadata-generator', 'style-analyzer']) {
       expect(all[name].model, name).toBe('claude-opus-5-5');
       expect(all[name].effort, name).toBe('high');
     }
-    for (const name of ['toc-generator', 'glossary-manager', 'omission-detector', 'ebook-packager']) {
+    for (const name of ['narrative-summarizer', 'glossary-manager', 'omission-detector', 'ebook-packager']) {
       expect(all[name].model, name).toBe('claude-sonnet-5-5');
       expect(all[name].effort, name).toBe('medium');
     }
@@ -45,8 +45,8 @@ describe('model tiers', () => {
     });
     const all = agents.loadAgents();
     expect(all['primary-translator']).toMatchObject({ model: 'claude-fable-5-1', effort: 'xhigh' });
-    expect(all['toc-generator']).toMatchObject({ model: 'claude-haiku-5-5', effort: 'medium' });
-    expect(env.env.models.orchestrator).toBe('claude-haiku-5-5');
+    expect(all['glossary-manager']).toMatchObject({ model: 'claude-haiku-5-5', effort: 'medium' });
+    expect(env.env.models.assistant).toBe('claude-haiku-5-5');
   });
 });
 

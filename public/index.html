@@ -78,10 +78,10 @@
         <div class="empty-card">
           <span class="brand-mark big">λ</span>
           <h2>Translate a book</h2>
-          <p>Upload an EPUB and a target language. An orchestrator agent runs the
-            14-agent pipeline — extraction, glossary building, drafting, omission
-            &amp; stray-phrase auditing, native critique, final polish — and checks
-            in with you before packaging the translated EPUB.</p>
+          <p>Upload an EPUB and a target language. The engine extracts the book, builds a
+            glossary, then drafts, audits, critiques, polishes and verifies every chapter with
+            specialized agents — several chapters at a time — and checks in with you before
+            packaging the translated EPUB.</p>
           <p class="muted" id="tier-note">The strong model does the translating. The cheaper one does everything else.</p>
         </div>
       </section>
@@ -97,30 +97,65 @@
           </div>
           <div id="project-actions" class="actions">
             <button id="start-btn" class="primary hidden">▶ Start translation</button>
+            <button id="pause-btn" class="ghost hidden" title="Finish the steps in flight, start nothing new">⏸ Pause</button>
+            <button id="resume-btn" class="primary hidden">▶ Resume</button>
+            <button id="stop-btn" class="ghost danger hidden" title="Abort the steps in flight; they run again on resume">■ Stop</button>
+            <label class="ghost button-like concurrency" title="Agent runs in flight at once">
+              ‖ <select id="concurrency"></select>
+            </label>
+            <button id="instructions-btn" class="ghost" title="Project-wide instructions; steps that start afterwards see them">✎ Instructions</button>
             <button id="download-btn" class="primary hidden">⤓ Download EPUB</button>
             <label id="cover-btn" class="ghost button-like" title="Optional custom cover for the translated EPUB">
               🖼 Cover<input type="file" id="cover-input" accept=".jpg,.jpeg,.png,.gif,.webp,.svg" hidden />
             </label>
             <button id="repackage-btn" class="ghost hidden" title="Rebuild the finished EPUB with the uploaded cover — no agents involved">↻ Repackage</button>
-            <button id="interrupt-btn" class="ghost danger hidden" title="Interrupt the orchestrator">■ Stop</button>
           </div>
         </header>
 
-        <!-- pipeline board -->
-        <div id="pipeline-board" aria-label="Pipeline progress"></div>
+        <!-- the run: state, progress, the chapter × stage matrix -->
+        <div id="run-panel">
+          <div id="run-summary">
+            <span id="run-state" class="run-state"></span>
+            <span id="run-reason" class="muted"></span>
+            <span class="grow"></span>
+            <span id="run-progress" class="run-progress"></span>
+          </div>
+          <div id="run-bar"><span id="run-bar-done"></span><span id="run-bar-running"></span><span id="run-bar-failed"></span></div>
+          <p id="run-notice" class="run-notice hidden" role="alert"></p>
+          <div id="global-steps" aria-label="Book-wide steps"></div>
+          <div id="matrix-wrap"><table id="matrix" aria-label="Chapters and stages"><thead></thead><tbody></tbody></table></div>
+        </div>
 
         <!-- review gate banner -->
         <div id="review-banner" class="hidden">
           <div class="review-head">
             <span class="pulse"></span>
-            <strong>The orchestrator is ready to package and wants your review.</strong>
+            <strong>Every chapter is finalized and verified. Review before packaging.</strong>
           </div>
-          <div class="review-body"><pre id="review-summary"></pre></div>
-          <textarea id="review-instructions" rows="3"
-            placeholder="Optional: instructions for another pass (tone tweaks, name fixes, chapters to redo…)"></textarea>
+          <div class="review-body"><pre id="review-summary"></pre><ul id="review-warnings" class="review-warnings"></ul></div>
+          <div class="review-pass">
+            <textarea id="review-instructions" rows="3"
+              placeholder="Instructions for another pass (tone tweaks, name fixes, what to redo…)"></textarea>
+            <div class="row wrap">
+              <label class="small">Chapters
+                <select id="review-scope">
+                  <option value="all">every chapter</option>
+                  <option value="some">chosen chapters…</option>
+                </select>
+              </label>
+              <label class="small">Pass
+                <select id="review-from">
+                  <option value="critique">fresh critique + polish</option>
+                  <option value="final">polish only</option>
+                  <option value="draft">retranslate from scratch</option>
+                </select>
+              </label>
+            </div>
+            <div id="review-chapters" class="chapter-picks hidden"></div>
+          </div>
           <div class="row">
             <button id="review-approve" class="primary">✓ Approve &amp; package</button>
-            <button id="review-revise" class="ghost">↺ Request another pass</button>
+            <button id="review-revise" class="ghost">↺ Run another pass</button>
           </div>
         </div>
 
@@ -129,12 +164,13 @@
           <div id="feed-pane">
             <div class="pane-head">
               <h3>Activity</h3>
+              <select id="feed-filter" class="small-select" title="Show only one chapter's activity"><option value="">everything</option></select>
               <label class="toggle"><input type="checkbox" id="show-detail" /> tool detail</label>
             </div>
             <div id="feed" role="log"></div>
             <form id="chat-form">
               <input id="chat-input" type="text" autocomplete="off"
-                placeholder="Message the orchestrator — ask, steer, request changes…" />
+                placeholder="Ask the assistant — about the book, the glossary, a chapter — or ask for changes…" />
               <button type="submit" class="primary">Send</button>
             </form>
           </div>
@@ -170,6 +206,43 @@
     </main>
   </div>
 
+  <!-- a step: its runs, prompt and log -->
+  <div id="step-modal" class="overlay hidden">
+    <div class="modal-card step-card" role="dialog" aria-labelledby="step-title">
+      <header class="modal-head">
+        <span class="asset-path" id="step-title">Step</span>
+        <div class="row">
+          <button id="step-retry" class="ghost small hidden">↻ retry</button>
+          <button id="step-close" class="ghost small" title="Close">✕</button>
+        </div>
+      </header>
+      <div class="step-body">
+        <dl class="kv" id="step-kv"></dl>
+        <p id="step-note" class="small hidden"></p>
+        <h4>Agent runs</h4>
+        <ol id="step-runs" class="plain-list"></ol>
+        <details id="step-prompt-box" class="hidden"><summary>The task prompt the agent was given</summary><pre id="step-prompt"></pre></details>
+        <h4>Log</h4>
+        <div id="step-log" class="step-log"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- project instructions -->
+  <div id="instructions-modal" class="overlay hidden">
+    <form id="instructions-form" class="modal-card small-card" role="dialog" aria-labelledby="instructions-title">
+      <div class="claude-body">
+        <h3 id="instructions-title">Instructions for the translators</h3>
+        <p class="small muted">Audience, register, names to keep, anything the agents should know. Steps that start after you save see the new text; steps already running do not.</p>
+        <textarea id="instructions-text" rows="8"></textarea>
+        <div class="row">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" id="instructions-cancel" class="ghost">Cancel</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
   <!-- asset viewer & review modal -->
   <div id="asset-modal" class="hidden">
     <div class="modal-card">
@@ -188,8 +261,8 @@
       </div>
       <form id="asset-comment-form">
         <textarea id="asset-comment" rows="2"
-          placeholder="Comment on this file — select text above to quote it. Sent straight to the orchestrator."></textarea>
-        <button type="submit" class="primary">Send to orchestrator</button>
+          placeholder="Comment on this file — select text above to quote it. Sent straight to the assistant."></textarea>
+        <button type="submit" class="primary">Send to assistant</button>
       </form>
     </div>
   </div>

@@ -3,14 +3,29 @@
 
 const $ = (id) => document.getElementById(id);
 
-const PHASES = [
-  ['preparation', 'Prepare'],
-  ['initialization', 'Initialize'],
-  ['extraction', 'Extract'],
-  ['production', 'Translate'],
-  ['review', 'Review'],
-  ['packaging', 'Package'],
-  ['done', 'Done'],
+/** The chapter stages, in pipeline order, as the matrix shows them. */
+const STAGES = [
+  ['summarize', 'Summary'],
+  ['lexicon', 'Lexicon'],
+  ['glossary', 'Glossary'],
+  ['draft', 'Draft'],
+  ['stray', 'Stray'],
+  ['critique', 'Critique'],
+  ['final', 'Final'],
+  ['verify', 'Verify'],
+];
+const GLOBAL_STAGES = [
+  ['prepare', 'Prepare'],
+  ['metadata', 'Metadata'],
+  ['style', 'Style guide'],
+  ['charter', 'Charter'],
+  ['package', 'Package'],
+];
+const STAGE_LABEL = Object.fromEntries([...STAGES, ...GLOBAL_STAGES]);
+const RERUN_STAGES = [
+  ['final', 'polish only (final)'],
+  ['critique', 'fresh critique + polish'],
+  ['draft', 'retranslate from scratch'],
 ];
 
 const state = {
@@ -18,11 +33,10 @@ const state = {
   current: null, // ProjectMeta
   ws: null,
   lastSeq: 0,
-  phaseState: new Map(), // phase -> started|completed|failed
-  chapterState: new Map(), // phase -> Map(chapter -> state)
-  activeTasks: new Set(), // subagent names currently running
+  pipeline: null, // { run, config, chapters, steps, progress }
+  feedFilter: '', // chapter key, or ''
   reviewPending: false,
-  expandedPhases: new Set(), // phases whose chapter chips are expanded
+  signedIn: false,
 };
 
 /* ---------------- api helpers ---------------- */
@@ -45,14 +59,29 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
-const del = (path) => api(path, { method: 'DELETE' });
-
-const post = (path, body) =>
+const send = (method) => (path, body) =>
   api(path, {
-    method: 'POST',
+    method,
     headers: body ? { 'content-type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
+const post = send('POST');
+const put = send('PUT');
+const patch = send('PATCH');
+const del = (path) => api(path, { method: 'DELETE' });
+
+const projectApi = (p) => `/api/projects/${state.current.id}${p}`;
+
+function fmtDuration(ms) {
+  if (ms == null) return '';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+const fmtCost = (usd) => (usd == null ? '' : `$${Number(usd).toFixed(2)}`);
 
 /* ---------------- project list ---------------- */
 
@@ -78,6 +107,7 @@ function label(status) {
   return {
     created: 'new',
     running: 'running',
+    paused: 'paused',
     awaiting_review: 'review',
     awaiting_input: 'idle',
     completed: 'done',
@@ -92,24 +122,26 @@ async function selectProject(id) {
   const detail = await api(`/api/projects/${id}`);
   state.current = detail;
   state.lastSeq = 0;
-  state.phaseState = new Map();
-  state.chapterState = new Map();
-  state.activeTasks = new Set();
+  state.pipeline = await api(`/api/projects/${id}/pipeline`);
+  state.feedFilter = '';
   state.reviewPending = false;
-  state.expandedPhases = new Set();
 
   $('empty-state').classList.add('hidden');
   $('project-view').classList.remove('hidden');
   $('project-title').textContent = detail.name;
   $('project-lang').textContent = detail.targetLanguage;
   $('feed').innerHTML = '';
+  $('feed-filter').value = '';
   $('review-banner').classList.add('hidden');
+  runNotice(null);
 
-  renderStatus();
   renderVersions(detail.versions ?? []);
-  renderUsage(detail.usage);
-  renderBoard();
+  renderUsage(state.pipeline.usage ?? detail.usage);
+  renderRun();
+  renderMatrix();
+  renderStatus();
   closeAsset();
+  closeStep();
   if (!$('tab-files').classList.contains('hidden')) loadFiles();
   refreshProjects();
   connectWs();
@@ -138,13 +170,37 @@ function handleEvent(ev) {
   switch (ev.type) {
     case 'status':
       if (state.current) state.current.status = ev.data.status;
-      if (ev.data.status !== 'awaiting_review') {
-        state.reviewPending = false;
-        $('review-banner').classList.add('hidden');
-      }
       renderStatus();
       refreshProjects();
+      refreshDetail();
       if (ev.data.detail) addFeed(ev, 'progress', ev.data.detail);
+      break;
+    case 'plan':
+      if (state.pipeline) {
+        state.pipeline.chapters = ev.data.chapters;
+        state.pipeline.config = ev.data.config;
+        renderMatrix();
+        renderRun();
+      }
+      break;
+    case 'step':
+      if (state.pipeline) {
+        state.pipeline.steps[ev.data.step.id] = ev.data.step;
+        renderCell(ev.data.step);
+        if (stepModal.id === ev.data.step.id) renderStepModal(ev.data.step);
+      }
+      break;
+    case 'run':
+      if (state.pipeline) {
+        state.pipeline.run = ev.data.run;
+        state.pipeline.progress = ev.data.progress;
+        if (ev.data.run.state !== 'awaiting_review') {
+          state.reviewPending = false;
+          $('review-banner').classList.add('hidden');
+        }
+        renderRun();
+        renderStatus();
+      }
       break;
     case 'agent_text':
       addFeed(ev, 'text', ev.data.text);
@@ -155,31 +211,14 @@ function handleEvent(ev) {
     case 'tool_use':
       addToolFeed(ev);
       break;
-    case 'task_start':
-      state.activeTasks.add(ev.data.agent);
-      addFeed(ev, 'task', `⇢ ${ev.data.agent} — ${ev.data.description || 'started'}`);
-      renderSpinner();
-      break;
-    case 'task_end':
-      state.activeTasks.delete(ev.data.agent);
-      addFeed(ev, 'task', `⇠ ${ev.data.agent} finished`);
-      renderSpinner();
-      break;
-    case 'progress':
-      applyProgress(ev.data);
-      addFeed(ev, 'progress', progressText(ev.data));
-      break;
     case 'review_request':
-      state.reviewPending = true;
-      $('review-summary').textContent = ev.data.summary ?? '';
-      $('review-instructions').value = '';
-      $('review-banner').classList.remove('hidden');
-      addFeed(ev, 'task', '⏸ review requested — see banner above');
+      showReview(ev.data.summary, ev.data.warnings ?? []);
+      addFeed(ev, 'task', '⏸ review requested — see the banner above');
       break;
     case 'review_response':
       addFeed(ev, 'text', ev.data.decision === 'approve'
         ? '✓ Approved — packaging.'
-        : `↺ Another pass requested: ${ev.data.instructions ?? ''}`);
+        : `↺ Another pass (${ev.data.chapters?.length ?? 'all'} chapters, from ${STAGE_LABEL[ev.data.from] ?? ev.data.from}): ${ev.data.instructions ?? ''}`);
       break;
     case 'user_message':
       addFeed(ev, 'text', ev.data.text);
@@ -187,18 +226,16 @@ function handleEvent(ev) {
     case 'version':
       if (ev.data.version) addFeed(ev, 'version', `⎘ version saved — ${ev.data.version.label}`);
       loadVersions();
-      // The workspace changed; keep the asset browser fresh if it's showing.
       if (!$('tab-files').classList.contains('hidden')) loadFiles();
       break;
     case 'usage': {
-      const turn = ev.data.turnCostUsd ?? ev.data.costUsd;
-      const total = ev.data.totalCostUsd;
-      if (turn != null) {
-        const totalPart = total != null ? ` · project total $${Number(total).toFixed(2)}` : '';
-        addFeed(ev, 'usage', `turn · $${Number(turn).toFixed(2)}${totalPart} · ${Math.round(ev.data.durationMs / 1000)}s`);
+      if (ev.data.turnCostUsd != null) {
+        addFeed(ev, 'usage', `assistant turn · ${fmtCost(ev.data.turnCostUsd)} · project total ${fmtCost(ev.data.totalCostUsd)}`);
       }
       if (ev.data.byModel) {
-        renderUsage({ byModel: ev.data.byModel, totalCostUsd: total, estimated: ev.data.estimated });
+        if (state.pipeline) state.pipeline.usage = { byModel: ev.data.byModel, totalCostUsd: ev.data.totalCostUsd, estimated: ev.data.estimated };
+        renderUsage(state.pipeline?.usage ?? { byModel: ev.data.byModel, totalCostUsd: ev.data.totalCostUsd, estimated: ev.data.estimated });
+        renderRun();
       }
       break;
     }
@@ -208,41 +245,435 @@ function handleEvent(ev) {
   }
 }
 
-function progressText(d) {
-  const chapter = d.chapter ? ` · ${d.chapter}` : '';
-  const icon = { started: '◐', completed: '●', failed: '✗' }[d.state] ?? '·';
-  return `${icon} ${d.phase}${chapter} ${d.state}${d.detail ? ' — ' + d.detail : ''}`;
+/** Re-read the project record (output path, cover, usage) after something changed server-side. */
+async function refreshDetail() {
+  if (!state.current) return;
+  const id = state.current.id;
+  let detail;
+  try { detail = await api(`/api/projects/${id}`); } catch { return; }
+  if (state.current?.id !== id) return;
+  state.current = { ...state.current, ...detail };
+  renderStatus();
 }
 
-function applyProgress(d) {
-  if (d.chapter) {
-    if (!state.chapterState.has(d.phase)) state.chapterState.set(d.phase, new Map());
-    state.chapterState.get(d.phase).set(d.chapter, d.state);
-    if (!state.phaseState.get(d.phase) || state.phaseState.get(d.phase) === 'completed') {
-      state.phaseState.set(d.phase, 'started');
-    }
-  } else {
-    state.phaseState.set(d.phase, d.state);
-  }
-  renderBoard();
+/** Re-read the whole run (after a revert, which changes many steps at once). */
+async function reloadPipeline() {
+  if (!state.current) return;
+  const id = state.current.id;
+  let pipeline;
+  try { pipeline = await api(`/api/projects/${id}/pipeline`); } catch { return; }
+  if (state.current?.id !== id) return;
+  state.pipeline = pipeline;
+  renderRun();
+  renderMatrix();
 }
+
+/* ---------------- the run ---------------- */
+
+function runStateText(run) {
+  return {
+    idle: 'Not started',
+    running: 'Running',
+    paused: 'Paused',
+    awaiting_review: 'Waiting for your review',
+    completed: 'Completed',
+  }[run.state] ?? run.state;
+}
+
+function renderRun() {
+  const p = state.pipeline;
+  if (!p) return;
+  const run = p.run;
+  const prog = p.progress ?? { total: 0, done: 0, running: 0, failed: 0, etaMs: null };
+  const st = $('run-state');
+  st.textContent = runStateText(run);
+  st.dataset.state = run.state;
+  let reason = run.reason ?? '';
+  if (run.state === 'paused' && run.resumeAt) {
+    const mins = Math.max(0, Math.round((Date.parse(run.resumeAt) - Date.now()) / 60000));
+    reason += ` — resumes ${mins ? `in ${mins} min` : 'shortly'}`;
+  }
+  $('run-reason').textContent = reason;
+  const bits = [`${prog.done}/${prog.total} steps`];
+  if (prog.running) bits.push(`${prog.running} in flight`);
+  if (prog.failed) bits.push(`${prog.failed} failed`);
+  if (run.state === 'running' && prog.etaMs != null) bits.push(`~${fmtDuration(prog.etaMs)} left`);
+  if (run.startedAt) {
+    const end = run.endedAt ? Date.parse(run.endedAt) : Date.now();
+    bits.push(`${fmtDuration(end - Date.parse(run.startedAt))} elapsed`);
+  }
+  const cost = p.usage?.totalCostUsd ?? state.current?.usage?.totalCostUsd;
+  if (cost != null) bits.push(`${p.usage?.estimated ? '~' : ''}${fmtCost(cost)}`);
+  $('run-progress').textContent = bits.join(' · ');
+  const total = Math.max(1, prog.total);
+  $('run-bar-done').style.width = `${(prog.done / total) * 100}%`;
+  $('run-bar-running').style.width = `${(prog.running / total) * 100}%`;
+  $('run-bar-failed').style.width = `${(prog.failed / total) * 100}%`;
+
+  // Controls.
+  $('start-btn').classList.toggle('hidden', run.state !== 'idle');
+  $('pause-btn').classList.toggle('hidden', run.state !== 'running');
+  $('stop-btn').classList.toggle('hidden', run.state !== 'running');
+  $('resume-btn').classList.toggle('hidden', run.state !== 'paused');
+  const sel = $('concurrency');
+  if (sel.options.length !== 8) {
+    sel.innerHTML = '';
+    for (let i = 1; i <= 8; i++) sel.add(new Option(String(i), String(i)));
+  }
+  sel.value = String(p.config?.concurrency ?? 3);
+  renderGlobalSteps();
+}
+
+function cellIcon(step) {
+  return { pending: '·', ready: '·', running: '◐', done: '●', failed: '✗', skipped: '–' }[step?.state ?? 'pending'];
+}
+
+function cellTitle(step) {
+  if (!step) return 'pending';
+  const bits = [`${STAGE_LABEL[step.stage] ?? step.stage}: ${step.state}`];
+  if (step.rounds > 1) bits.push(`${step.rounds} rounds`);
+  if (step.attempts > 1) bits.push(`${step.attempts} attempts`);
+  if (step.durationMs) bits.push(fmtDuration(step.durationMs));
+  if (step.costUsd) bits.push(fmtCost(step.costUsd));
+  if (step.warning) bits.push(`⚠ ${step.warning}`);
+  if (step.error) bits.push(`✗ ${step.error}`);
+  return bits.join(' · ');
+}
+
+function renderGlobalSteps() {
+  const p = state.pipeline;
+  const wrap = $('global-steps');
+  wrap.innerHTML = '';
+  for (const [stage, name] of GLOBAL_STAGES) {
+    const step = p.steps[stage];
+    const el = document.createElement('button');
+    el.className = `gstep state-${step?.state ?? 'pending'}`;
+    el.dataset.step = stage;
+    el.title = cellTitle(step);
+    el.innerHTML = `<span class="g-icon"></span><span class="g-name"></span><span class="g-meta"></span>`;
+    el.querySelector('.g-icon').textContent = cellIcon(step);
+    el.querySelector('.g-name').textContent = name;
+    el.querySelector('.g-meta').textContent = step?.state === 'done' ? fmtDuration(step.durationMs) : step?.state === 'running' ? 'running' : step?.state === 'failed' ? 'failed' : '';
+    if (step?.warning) el.classList.add('has-warning');
+    el.addEventListener('click', () => openStep(stage));
+    wrap.appendChild(el);
+  }
+}
+
+function renderMatrix() {
+  const p = state.pipeline;
+  if (!p) return;
+  const thead = $('matrix').querySelector('thead');
+  const tbody = $('matrix').querySelector('tbody');
+  thead.innerHTML = `<tr><th class="m-chapter">Chapter</th>${STAGES.map(([, name]) => `<th>${name}</th>`).join('')}<th class="m-actions"></th></tr>`;
+  tbody.innerHTML = '';
+  const filter = $('feed-filter');
+  const keep = filter.value;
+  filter.innerHTML = '<option value="">everything</option><option value="engine">engine & assistant</option>';
+  for (const c of p.chapters) {
+    const tr = document.createElement('tr');
+    tr.dataset.chapter = c.key;
+    tr.className = c.excluded ? 'excluded' : '';
+    const th = document.createElement('th');
+    th.className = 'm-chapter';
+    th.innerHTML = `<div class="m-title"></div><div class="m-sub"></div>`;
+    th.querySelector('.m-title').textContent = c.title;
+    th.querySelector('.m-title').title = c.path;
+    th.querySelector('.m-sub').textContent = c.excluded
+      ? `excluded${c.excludedReason ? ` · ${c.excludedReason}` : ''}`
+      : `${c.words.toLocaleString()} words${c.note ? ' · note' : ''}`;
+    if (c.note) th.querySelector('.m-sub').title = c.note;
+    tr.appendChild(th);
+    for (const [stage] of STAGES) {
+      const td = document.createElement('td');
+      td.dataset.step = `${c.key}/${stage}`;
+      tr.appendChild(td);
+      renderCellInto(td, p.steps[`${c.key}/${stage}`], c.excluded);
+    }
+    const actions = document.createElement('td');
+    actions.className = 'm-actions';
+    const menu = document.createElement('button');
+    menu.className = 'ghost small';
+    menu.textContent = '⋯';
+    menu.title = 'Chapter actions';
+    menu.setAttribute('aria-label', 'Chapter actions');
+    menu.addEventListener('click', (e) => chapterMenu(e, c));
+    actions.appendChild(menu);
+    tr.appendChild(actions);
+    tbody.appendChild(tr);
+    if (!c.excluded) filter.add(new Option(c.title, c.key));
+  }
+  filter.value = [...filter.options].some((o) => o.value === keep) ? keep : '';
+}
+
+function renderCellInto(td, step, excluded) {
+  td.className = `m-cell state-${excluded ? 'skipped' : (step?.state ?? 'pending')}`;
+  td.title = excluded ? 'chapter excluded' : cellTitle(step);
+  td.innerHTML = '';
+  if (excluded) return;
+  const btn = document.createElement('button');
+  btn.className = 'cell';
+  const icon = document.createElement('span');
+  icon.className = 'c-icon';
+  icon.textContent = cellIcon(step);
+  btn.appendChild(icon);
+  const meta = document.createElement('span');
+  meta.className = 'c-meta';
+  if (step?.state === 'done') meta.textContent = step.rounds > 1 ? `×${step.rounds}` : fmtDuration(step.durationMs);
+  else if (step?.state === 'running') meta.textContent = step.rounds ? `r${step.rounds}` : '…';
+  else if (step?.state === 'failed') meta.textContent = 'failed';
+  btn.appendChild(meta);
+  if (step?.warning) {
+    const w = document.createElement('span');
+    w.className = 'c-warn';
+    w.textContent = '!';
+    btn.appendChild(w);
+  }
+  btn.addEventListener('click', () => openStep(step?.id ?? td.dataset.step));
+  td.appendChild(btn);
+}
+
+function renderCell(step) {
+  if (!step.chapter) { renderGlobalSteps(); return; }
+  const td = $('matrix').querySelector(`td[data-step="${CSS.escape(step.id)}"]`);
+  if (!td) { renderMatrix(); return; }
+  const c = state.pipeline.chapters.find((x) => x.key === step.chapter);
+  renderCellInto(td, step, c?.excluded);
+}
+
+/* ---------------- chapter actions ---------------- */
+
+function chapterMenu(e, c) {
+  e.stopPropagation();
+  closeMenus();
+  const menu = document.createElement('div');
+  menu.className = 'menu';
+  const item = (text, fn) => {
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.addEventListener('click', async () => {
+      closeMenus();
+      try { await fn(); } catch (err) { alert(err.message); }
+    });
+    menu.appendChild(b);
+  };
+  item(c.excluded ? 'Include in the translation' : 'Exclude from the translation', () => patch(projectApi(`/chapters/${encodeURIComponent(c.key)}`), { excluded: !c.excluded }));
+  item(c.note ? 'Edit the note…' : 'Add a note…', async () => {
+    const note = prompt(`A note for "${c.title}" — every later step about it sees this:`, c.note ?? '');
+    if (note === null) return;
+    await patch(projectApi(`/chapters/${encodeURIComponent(c.key)}`), { note });
+  });
+  if (!c.excluded) {
+    for (const [stage, text] of RERUN_STAGES) {
+      item(`Re-run: ${text}`, async () => {
+        const note = prompt(`Re-run "${c.title}" — ${text}. Anything the agents should do differently?`, '');
+        if (note === null) return;
+        await post(projectApi('/chapters/rerun'), { chapters: [c.key], from: stage, note });
+      });
+    }
+  }
+  const r = e.currentTarget.getBoundingClientRect();
+  menu.style.top = `${r.bottom + window.scrollY + 4}px`;
+  menu.style.right = `${document.documentElement.clientWidth - r.right - window.scrollX}px`;
+  document.body.appendChild(menu);
+}
+
+function closeMenus() {
+  for (const m of document.querySelectorAll('.menu')) m.remove();
+}
+document.addEventListener('click', closeMenus);
+
+/* ---------------- step modal ---------------- */
+
+const stepModal = { id: null };
+
+async function openStep(id) {
+  stepModal.id = id;
+  $('step-modal').classList.remove('hidden');
+  $('step-log').innerHTML = '<span class="muted">Loading…</span>';
+  let step;
+  try {
+    step = await api(projectApi(`/step?id=${encodeURIComponent(id)}`));
+  } catch (e) {
+    $('step-log').textContent = e.message;
+    return;
+  }
+  renderStepModal(step);
+  try {
+    const events = await api(projectApi(`/events?step=${encodeURIComponent(id)}`));
+    const log = $('step-log');
+    log.innerHTML = '';
+    if (!events.length) log.innerHTML = '<span class="muted">Nothing yet.</span>';
+    for (const ev of events) {
+      if (ev.type === 'tool_use') renderToolRow(log, ev, true);
+      else if (ev.type === 'agent_text' || ev.type === 'thinking' || ev.type === 'error') renderFeedRow(log, ev, ev.type === 'agent_text' ? 'text' : ev.type, ev.type === 'error' ? ev.data.message : ev.data.text, { collapse: 400 });
+    }
+  } catch (e) {
+    $('step-log').textContent = e.message;
+  }
+}
+
+function closeStep() {
+  stepModal.id = null;
+  $('step-modal').classList.add('hidden');
+}
+
+function renderStepModal(step) {
+  const c = step.chapter ? state.pipeline?.chapters.find((x) => x.key === step.chapter) : null;
+  $('step-title').textContent = `${STAGE_LABEL[step.stage] ?? step.stage}${c ? ` — ${c.title}` : ''}`;
+  const kv = $('step-kv');
+  kv.innerHTML = '';
+  const row = (k, v, cls) => {
+    if (v == null || v === '') return;
+    const dt = document.createElement('dt'); dt.textContent = k;
+    const dd = document.createElement('dd'); dd.textContent = v; if (cls) dd.className = cls;
+    kv.append(dt, dd);
+  };
+  row('State', step.state, step.state === 'done' ? 'ok' : step.state === 'failed' ? 'bad' : '');
+  if (step.rounds) row('Rounds', String(step.rounds));
+  if (step.durationMs) row('Took', fmtDuration(step.durationMs));
+  if (step.costUsd) row('Cost', fmtCost(step.costUsd));
+  row('Warning', step.warning, 'warn');
+  row('Error', step.error, 'bad');
+  const runs = $('step-runs');
+  runs.innerHTML = '';
+  if (!step.runs?.length) runs.innerHTML = '<li class="empty">No agent has run for this step yet.</li>';
+  for (const r of [...(step.runs ?? [])].reverse()) {
+    const li = document.createElement('li');
+    li.innerHTML = '<div class="li-main"><div class="li-title"></div><div class="li-sub"></div></div><div class="li-actions"></div>';
+    li.querySelector('.li-title').textContent = `${r.agent} · ${r.mode}${r.round > 1 ? ` · round ${r.round}` : ''}${r.attempt > 1 ? ` · attempt ${r.attempt}` : ''}`;
+    const sub = [r.state, r.model ? r.model.replace(/^claude-/, '') : '', r.durationMs ? fmtDuration(r.durationMs) : '', r.costUsd ? fmtCost(r.costUsd) : '', r.tokens ? `${r.tokens.input.toLocaleString()} in / ${r.tokens.output.toLocaleString()} out` : '', r.error ?? ''].filter(Boolean);
+    li.querySelector('.li-sub').textContent = sub.join(' · ');
+    li.className = `run-${r.state}`;
+    if (r.prompt) {
+      const b = document.createElement('button');
+      b.className = 'ghost small';
+      b.textContent = 'prompt';
+      b.addEventListener('click', () => {
+        $('step-prompt').textContent = r.prompt;
+        $('step-prompt-box').classList.remove('hidden');
+        $('step-prompt-box').open = true;
+      });
+      li.querySelector('.li-actions').appendChild(b);
+    }
+    runs.appendChild(li);
+  }
+  $('step-prompt-box').classList.toggle('hidden', !step.runs?.some((r) => r.prompt));
+  $('step-prompt').textContent = step.runs?.at(-1)?.prompt ?? '';
+  const retry = $('step-retry');
+  retry.classList.toggle('hidden', step.state === 'running');
+  retry.textContent = step.state === 'failed' ? '↻ retry' : '↻ run again from here';
+  retry.onclick = async () => {
+    const q = step.chapter && step.stage !== 'summarize' && step.stage !== 'lexicon' && step.stage !== 'glossary'
+      ? `Run "${STAGE_LABEL[step.stage]}" and every later stage of this chapter again?`
+      : `Run "${STAGE_LABEL[step.stage]}" again?`;
+    if (!confirm(q)) return;
+    try { await post(projectApi('/steps/retry'), { id: step.id }); closeStep(); }
+    catch (e) { alert(e.message); }
+  };
+}
+
+$('step-close').addEventListener('click', closeStep);
+$('step-modal').addEventListener('click', (e) => { if (e.target === $('step-modal')) closeStep(); });
+
+/* ---------------- instructions ---------------- */
+
+$('instructions-btn').addEventListener('click', () => {
+  $('instructions-text').value = state.current?.context ?? '';
+  $('instructions-modal').classList.remove('hidden');
+  $('instructions-text').focus();
+});
+$('instructions-cancel').addEventListener('click', () => $('instructions-modal').classList.add('hidden'));
+$('instructions-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const r = await put(projectApi('/instructions'), { context: $('instructions-text').value });
+    state.current.context = r.context;
+    $('instructions-modal').classList.add('hidden');
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+/* ---------------- review gate ---------------- */
+
+function showReview(summary, warnings) {
+  state.reviewPending = true;
+  $('review-summary').textContent = summary ?? '';
+  const ul = $('review-warnings');
+  ul.innerHTML = '';
+  for (const w of warnings) {
+    const li = document.createElement('li');
+    li.textContent = w;
+    ul.appendChild(li);
+  }
+  $('review-instructions').value = '';
+  $('review-scope').value = 'all';
+  $('review-from').value = 'critique';
+  const picks = $('review-chapters');
+  picks.innerHTML = '';
+  for (const c of state.pipeline?.chapters ?? []) {
+    if (c.excluded) continue;
+    const l = document.createElement('label');
+    l.className = 'pick';
+    l.innerHTML = '<input type="checkbox" /> <span></span>';
+    l.querySelector('input').value = c.key;
+    l.querySelector('span').textContent = c.title;
+    picks.appendChild(l);
+  }
+  picks.classList.add('hidden');
+  $('review-banner').classList.remove('hidden');
+}
+
+$('review-scope').addEventListener('change', (e) => $('review-chapters').classList.toggle('hidden', e.target.value !== 'some'));
+
+$('review-approve').addEventListener('click', async () => {
+  try { await post(projectApi('/review'), { decision: 'approve' }); }
+  catch (e) { alert(e.message); }
+});
+
+$('review-revise').addEventListener('click', async () => {
+  const instructions = $('review-instructions').value.trim();
+  if (!instructions) { alert('Describe what you want changed in the box above.'); return; }
+  const body = { decision: 'revise', instructions, from: $('review-from').value };
+  if ($('review-scope').value === 'some') {
+    body.chapters = [...$('review-chapters').querySelectorAll('input:checked')].map((i) => i.value);
+    if (!body.chapters.length) { alert('Pick at least one chapter, or choose every chapter.'); return; }
+  }
+  try { await post(projectApi('/review'), body); }
+  catch (e) { alert(e.message); }
+});
 
 /* ---------------- feed rendering ---------------- */
 
 function agentClass(agent) {
-  if (agent === 'orchestrator') return 'orchestrator';
+  if (agent === 'engine') return 'engine';
+  if (agent === 'assistant') return 'assistant';
   if (agent === 'user') return 'user';
   return 'subagent';
 }
 
-function addFeed(ev, kind, text, opts = {}) {
-  const feed = $('feed');
+/** Whether an event is visible under the current chapter filter. */
+function feedVisible(ev) {
+  const f = state.feedFilter;
+  if (!f) return true;
+  if (f === 'engine') return !ev.chapter;
+  return ev.chapter === f;
+}
+
+function renderFeedRow(container, ev, kind, text, opts = {}) {
   const el = document.createElement('div');
   el.className = `ev ${agentClass(ev.agent)} kind-${kind}`;
+  if (ev.chapter) el.dataset.chapter = ev.chapter;
+  if (ev.step) el.dataset.step = ev.step;
   const badge = document.createElement('span');
   badge.className = 'badge';
   badge.textContent = ev.agent;
   badge.title = new Date(ev.ts).toLocaleTimeString();
+  if (ev.chapter && container === $('feed')) {
+    const c = state.pipeline?.chapters.find((x) => x.key === ev.chapter);
+    badge.title += ` · ${c?.title ?? ev.chapter}`;
+  }
   const body = document.createElement('div');
   body.className = 'body';
   if (opts.collapse && text.length > opts.collapse) {
@@ -257,14 +688,25 @@ function addFeed(ev, kind, text, opts = {}) {
     body.textContent = text;
   }
   el.append(badge, body);
-  insertFeed(feed, el);
+  if (container === $('feed')) {
+    if (!feedVisible(ev)) el.style.display = 'none';
+    insertFeed(container, el);
+  } else {
+    container.appendChild(el);
+  }
+  return el;
 }
 
-function addToolFeed(ev) {
-  const feed = $('feed');
+function addFeed(ev, kind, text, opts = {}) {
+  renderFeedRow($('feed'), ev, kind, text ?? '', opts);
+}
+
+function renderToolRow(container, ev, forceVisible = false) {
   const el = document.createElement('div');
   el.className = `ev ${agentClass(ev.agent)} kind-tool tool-detail`;
-  el.style.display = $('show-detail').checked ? '' : 'none';
+  if (ev.chapter) el.dataset.chapter = ev.chapter;
+  if (ev.step) el.dataset.step = ev.step;
+  if (!forceVisible && (!$('show-detail').checked || !feedVisible(ev))) el.style.display = 'none';
   const badge = document.createElement('span');
   badge.className = 'badge';
   badge.textContent = ev.agent;
@@ -278,119 +720,33 @@ function addToolFeed(ev) {
   details.append(summary, pre);
   body.appendChild(details);
   el.append(badge, body);
-  insertFeed(feed, el);
+  if (container === $('feed')) insertFeed(container, el);
+  else container.appendChild(el);
+}
+
+function addToolFeed(ev) {
+  renderToolRow($('feed'), ev);
 }
 
 function insertFeed(feed, el) {
-  const spinner = feed.querySelector('.spinner-row');
   const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
-  if (spinner) feed.insertBefore(el, spinner);
-  else feed.appendChild(el);
-  while (feed.children.length > 800) feed.removeChild(feed.firstChild);
+  feed.appendChild(el);
+  while (feed.children.length > 1200) feed.removeChild(feed.firstChild);
   if (atBottom) feed.scrollTop = feed.scrollHeight;
 }
 
-function renderSpinner() {
-  const feed = $('feed');
-  let spinner = feed.querySelector('.spinner-row');
-  if (state.activeTasks.size === 0) {
-    spinner?.remove();
-    return;
+function applyFeedFilter() {
+  state.feedFilter = $('feed-filter').value;
+  const detail = $('show-detail').checked;
+  for (const el of $('feed').children) {
+    const ev = { chapter: el.dataset.chapter };
+    const visible = feedVisible(ev) && (detail || !el.classList.contains('tool-detail'));
+    el.style.display = visible ? '' : 'none';
   }
-  if (!spinner) {
-    spinner = document.createElement('div');
-    spinner.className = 'spinner-row';
-    spinner.innerHTML = '<span class="spinner"></span><span class="spinner-text"></span>';
-    feed.appendChild(spinner);
-  }
-  spinner.querySelector('.spinner-text').textContent = [...state.activeTasks].join(', ') + ' working…';
-  feed.scrollTop = feed.scrollHeight;
+  $('feed').scrollTop = $('feed').scrollHeight;
 }
-
-/* ---------------- pipeline board ---------------- */
-
-function shortChapter(chapter) {
-  return chapter
-    .replace(/\.x?html?$/i, '')
-    .replace(/^index_split_0*/i, '§')
-    .replace(/^\d{8,}[_-]/, ''); // drop redundant ISBN/book-id prefix (e.g. 9780062077868_Chapter_1)
-}
-
-function renderBoard() {
-  const board = $('pipeline-board');
-  board.innerHTML = '';
-  for (const [phase, name] of PHASES) {
-    const st = state.phaseState.get(phase);
-    const el = document.createElement('div');
-    el.className = 'phase' + (st ? ` state-${st}` : '');
-    el.innerHTML = `<div class="ph-name">${name}</div>`;
-    const chapters = state.chapterState.get(phase);
-
-    if (!chapters?.size) {
-      const stateText = { started: 'in progress', completed: 'complete', failed: 'failed' }[st] ?? '—';
-      el.insertAdjacentHTML('beforeend', `<div class="ph-state">${stateText}</div>`);
-      board.appendChild(el);
-      continue;
-    }
-
-    // Chapter-scoped phase: compact summary + progress bar, expandable chips.
-    const counts = { completed: 0, started: 0, failed: 0 };
-    for (const s of chapters.values()) if (s in counts) counts[s]++;
-    const total = chapters.size;
-
-    const stateLine = document.createElement('div');
-    stateLine.className = 'ph-state';
-    const bits = [`${counts.completed}/${total} done`];
-    if (counts.started) bits.push(`${counts.started} running`);
-    if (counts.failed) bits.push(`${counts.failed} failed`);
-    stateLine.textContent = bits.join(' · ');
-    el.appendChild(stateLine);
-
-    const bar = document.createElement('div');
-    bar.className = 'ph-bar';
-    bar.innerHTML =
-      `<span class="seg-completed" style="width:${(counts.completed / total) * 100}%"></span>` +
-      `<span class="seg-started" style="width:${(counts.started / total) * 100}%"></span>` +
-      `<span class="seg-failed" style="width:${(counts.failed / total) * 100}%"></span>`;
-    el.appendChild(bar);
-
-    const expanded = state.expandedPhases.has(phase);
-
-    // When collapsed, still surface what's being worked on right now.
-    const running = [...chapters].filter(([, s]) => s === 'started').map(([c]) => c);
-    if (running.length && !expanded) {
-      const hint = document.createElement('div');
-      hint.className = 'ph-running';
-      hint.textContent = '◐ ' + running.map(shortChapter).join(', ');
-      hint.title = running.join(', ');
-      el.appendChild(hint);
-    }
-
-    if (expanded) {
-      const wrap = document.createElement('div');
-      wrap.className = 'chapter-chips';
-      for (const [chapter, cst] of chapters) {
-        const chip = document.createElement('span');
-        chip.className = `chapter-chip state-${cst}`;
-        chip.textContent = shortChapter(chapter);
-        chip.title = `${chapter}: ${cst}`;
-        wrap.appendChild(chip);
-      }
-      el.appendChild(wrap);
-    }
-
-    const toggle = document.createElement('button');
-    toggle.className = 'ph-toggle';
-    toggle.textContent = expanded ? '▴ collapse' : `▾ ${total} chapters`;
-    toggle.addEventListener('click', () => {
-      if (expanded) state.expandedPhases.delete(phase);
-      else state.expandedPhases.add(phase);
-      renderBoard();
-    });
-    el.appendChild(toggle);
-    board.appendChild(el);
-  }
-}
+$('feed-filter').addEventListener('change', applyFeedFilter);
+$('show-detail').addEventListener('change', applyFeedFilter);
 
 /* ---------------- status & actions ---------------- */
 
@@ -400,10 +756,8 @@ function renderStatus() {
   const chip = $('project-status');
   chip.dataset.status = p.status;
   chip.textContent = label(p.status);
-  $('start-btn').classList.toggle('hidden', p.status !== 'created');
-  $('download-btn').classList.toggle('hidden', p.status !== 'completed');
-  $('interrupt-btn').classList.toggle('hidden', p.status !== 'running' && p.status !== 'awaiting_review');
-  $('repackage-btn').classList.toggle('hidden', !(p.status === 'completed' && p.coverFilename));
+  $('download-btn').classList.toggle('hidden', !p.outputPath);
+  $('repackage-btn').classList.toggle('hidden', !(p.outputPath && p.coverFilename));
 }
 
 /* ---------------- usage ---------------- */
@@ -639,7 +993,7 @@ $('asset-comment-form').addEventListener('submit', async (e) => {
     asset.excerpt = '';
     $('asset-quote').classList.add('hidden');
     btn.textContent = 'Sent ✓';
-    setTimeout(() => { btn.textContent = 'Send to orchestrator'; }, 1600);
+    setTimeout(() => { btn.textContent = 'Send to assistant'; }, 1600);
   } catch (err) {
     alert(err.message);
   } finally {
@@ -689,6 +1043,7 @@ function renderVersions(versions) {
       catch (e) { alert(e.message); }
       btn.disabled = false;
       loadVersions();
+      reloadPipeline();
     });
     meta.appendChild(btn);
     li.append(labelDiv, meta);
@@ -727,11 +1082,26 @@ $('new-project-form').addEventListener('submit', async (e) => {
   }
 });
 
-$('start-btn').addEventListener('click', async () => {
-  $('start-btn').disabled = true;
-  try { await post(`/api/projects/${state.current.id}/start`); }
-  catch (e) { alert(e.message); }
-  $('start-btn').disabled = false;
+/** Run-control problems show on the run line itself; a modal alert would only get in the way. */
+function runNotice(text) {
+  const el = $('run-notice');
+  el.textContent = text ?? '';
+  el.classList.toggle('hidden', !text);
+}
+
+for (const [id, action] of [['start-btn', 'start'], ['pause-btn', 'pause'], ['resume-btn', 'resume'], ['stop-btn', 'stop']]) {
+  $(id).addEventListener('click', async () => {
+    $(id).disabled = true;
+    runNotice(null);
+    try { await post(projectApi(`/run/${action}`)); }
+    catch (e) { runNotice(e.message); }
+    $(id).disabled = false;
+  });
+}
+
+$('concurrency').addEventListener('change', async (e) => {
+  try { await put(projectApi('/run/concurrency'), { concurrency: Number(e.target.value) }); }
+  catch (err) { alert(err.message); }
 });
 
 $('chat-form').addEventListener('submit', async (e) => {
@@ -740,35 +1110,18 @@ $('chat-form').addEventListener('submit', async (e) => {
   const text = input.value.trim();
   if (!text || !state.current) return;
   input.value = '';
-  try { await post(`/api/projects/${state.current.id}/message`, { text }); }
+  try { await post(projectApi('/message'), { text }); }
   catch (err) { alert(err.message); }
 });
 
-$('review-approve').addEventListener('click', async () => {
-  try { await post(`/api/projects/${state.current.id}/review`, { decision: 'approve' }); }
-  catch (e) { alert(e.message); }
-});
-
-$('review-revise').addEventListener('click', async () => {
-  const instructions = $('review-instructions').value.trim();
-  if (!instructions) { alert('Describe what you want changed in the box above.'); return; }
-  try { await post(`/api/projects/${state.current.id}/review`, { decision: 'revise', instructions }); }
-  catch (e) { alert(e.message); }
-});
-
-$('interrupt-btn').addEventListener('click', async () => {
-  try { await post(`/api/projects/${state.current.id}/interrupt`); }
-  catch (e) { alert(e.message); }
-});
-
 $('download-btn').addEventListener('click', () => {
-  window.location.href = `/api/projects/${state.current.id}/download`;
+  window.location.href = projectApi('/download');
 });
 
 $('snapshot-btn').addEventListener('click', async () => {
   const labelText = prompt('Label for this snapshot:', 'manual snapshot');
   if (labelText == null) return;
-  try { await post(`/api/projects/${state.current.id}/versions`, { label: labelText }); }
+  try { await post(projectApi('/versions'), { label: labelText }); }
   catch (e) { alert(e.message); }
   loadVersions();
 });
@@ -779,12 +1132,12 @@ $('cover-input').addEventListener('change', async (e) => {
   const data = new FormData();
   data.append('cover', file);
   try {
-    const result = await api(`/api/projects/${state.current.id}/cover`, { method: 'POST', body: data });
+    const result = await api(projectApi('/cover'), { method: 'POST', body: data });
     state.current.coverFilename = result.coverFilename;
     renderStatus();
-    if (state.current.status === 'completed') {
+    if (state.current.outputPath) {
       if (confirm('Cover uploaded. Repackage the translated EPUB with it now?')) {
-        await post(`/api/projects/${state.current.id}/repackage`);
+        await post(projectApi('/repackage'));
       }
     } else {
       alert('Cover uploaded — it will be used when the book is packaged.');
@@ -797,20 +1150,15 @@ $('cover-input').addEventListener('change', async (e) => {
 
 $('repackage-btn').addEventListener('click', async () => {
   $('repackage-btn').disabled = true;
-  try { await post(`/api/projects/${state.current.id}/repackage`); alert('Repackaged with the custom cover.'); }
+  try { await post(projectApi('/repackage')); alert('Repackaged with the custom cover.'); }
   catch (e) { alert(e.message); }
   $('repackage-btn').disabled = false;
 });
 
-$('show-detail').addEventListener('change', (e) => {
-  for (const el of document.querySelectorAll('.tool-detail')) {
-    el.style.display = e.target.checked ? '' : 'none';
-  }
-});
-
-/* periodic light refresh of project detail (status can change server-side) */
+/* periodic light refresh: the run summary's clock, and project details that change server-side */
 setInterval(async () => {
   if (!state.current || !state.signedIn) return;
+  if (state.pipeline?.run.state === 'running' || state.pipeline?.run.state === 'paused') renderRun();
   try {
     const detail = await api(`/api/projects/${state.current.id}`);
     const changed = detail.status !== state.current.status
@@ -1185,7 +1533,7 @@ function renderClaude() {
   }
   row('Translation', `${s.models.translation} · effort ${s.effort.translation}`);
   row('Mechanical', `${s.models.mechanical} · effort ${s.effort.mechanical}`);
-  row('Orchestrator', `${s.models.orchestrator} · effort ${s.effort.orchestrator}`);
+  row('Assistant', `${s.models.assistant} · effort ${s.effort.assistant}`);
 
   const canWeb = !s.shadowedByEnv;
   $('claude-shadowed').classList.toggle('hidden', canWeb);

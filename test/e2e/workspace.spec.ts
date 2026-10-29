@@ -21,15 +21,15 @@ test.describe('workspace review', () => {
 
     await tree.locator('.file-row', { hasText: 'master_glossary.json' }).click();
     await expect(page.locator('#asset-path')).toHaveText('notes/master_glossary.json');
-    await expect(page.locator('#asset-content')).toContainText('"target": "mundo"');
+    await expect(page.locator('#asset-content')).toContainText('"translation": "término-chapter1.xhtml"');
     await page.keyboard.press('Escape');
     await expect(page.locator('#asset-modal')).toBeHidden();
 
-    await tree.locator('details', { hasText: 'final' }).locator('.file-row', { hasText: 'chapter1.xhtml' }).click();
+    await tree.locator('.file-row', { has: page.locator('.f-name[title="final/OEBPS/chapter1.xhtml"]') }).click();
     const frame = page.frameLocator('#asset-content iframe');
-    await expect(frame.locator('p')).toHaveText('¡Hola, mundo!');
+    await expect(frame.locator('h1')).toContainText('ES');
     await page.getByRole('button', { name: /source view/ }).click();
-    await expect(page.locator('#asset-content')).toContainText('<p>¡Hola, mundo!</p>');
+    await expect(page.locator('#asset-content')).toContainText('<p>ES final</p>');
 
     // Select text in the source view to quote it.
     await page.locator('#asset-content').evaluate((el) => {
@@ -42,12 +42,13 @@ test.describe('workspace review', () => {
     });
     await expect(page.locator('#asset-quote')).toBeVisible();
     await page.getByPlaceholder(/Comment on this file/).fill('Use a softer greeting');
-    await page.getByRole('button', { name: 'Send to orchestrator' }).click();
+    await page.getByRole('button', { name: 'Send to assistant' }).click();
     await expect(page.getByRole('button', { name: 'Sent ✓' })).toBeVisible();
     await page.locator('#asset-close').click();
-    await expect(page.locator('#feed')).toContainText('[User comment on asset `final/chapter1.xhtml`]');
+    await expect(page.locator('#feed')).toContainText('[User comment on asset `final/OEBPS/chapter1.xhtml`]');
     await expect(page.locator('#feed')).toContainText('Use a softer greeting');
-    // The comment queues behind the review gate; the review stays open.
+    // The assistant answers; the review stays open.
+    await expect(page.locator('#feed .ev.assistant.kind-text').last()).toContainText('Noted: [User comment');
     await expect(page.locator('#project-status')).toHaveText('review');
     await expect(page.locator('#review-banner')).toBeVisible();
   });
@@ -60,21 +61,23 @@ test.describe('workspace review', () => {
     await expect(page.getByRole('link', { name: '⤓ download source.epub' })).toBeVisible();
   });
 
-  test('snapshots and reverts the workspace from the version list', async ({ page }) => {
+  test('snapshots and reverts the workspace from the version list once the run is paused', async ({ page }) => {
     await finishedProject(page, 'Versions Book');
     page.once('dialog', (d) => d.accept('my checkpoint'));
     await page.getByRole('button', { name: /snapshot/ }).click();
     // Nothing changed since the last version, so the list does not grow with "my checkpoint".
     const items = page.locator('#version-list .version-item');
-    await expect(items.first()).toContainText('all chapters finalized');
+    await expect(items.first()).toContainText('finalized');
 
-    const prep = items.filter({ hasText: 'after preparation' });
-    await expect(prep.getByRole('button', { name: 'revert' })).toBeHidden(); // shown on hover only
-    await prep.hover();
+    const init = items.filter({ hasText: 'initialization complete' });
+    await expect(init.getByRole('button', { name: 'revert' })).toBeHidden(); // shown on hover only
+    await init.hover();
     page.once('dialog', (d) => d.accept());
-    await prep.getByRole('button', { name: 'revert' }).click();
-    await expect(items.first()).toContainText(/revert to [0-9a-f]{8} \(after preparation\)/);
-    await expect(page.locator('#feed')).toContainText('reverted the workspace');
+    await init.getByRole('button', { name: 'revert' }).click();
+    await expect(items.first()).toContainText(/revert to [0-9a-f]{8} \(initialization complete\)/);
+    // The matrix follows the files: production is pending again, initialization is still done.
+    await expect(page.locator('td[data-step="chapter1.xhtml/final"]')).toHaveClass(/state-pending/);
+    await expect(page.locator('#global-steps .gstep', { hasText: 'Charter' })).toHaveClass(/state-done/);
     await page.getByRole('button', { name: 'Files' }).click();
     await expect(page.locator('#file-tree')).not.toContainText('final');
   });
@@ -94,6 +97,6 @@ test.describe('workspace review', () => {
 
     page.once('dialog', (x) => x.accept());
     await page.getByRole('button', { name: /Repackage/ }).click();
-    await expect(page.locator('#feed')).toContainText('Repackaged with custom cover');
+    await expect(page.locator('#feed')).toContainText('Repackaged with the custom cover');
   });
 });

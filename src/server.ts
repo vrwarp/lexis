@@ -8,7 +8,7 @@ server.listen(env.port, () => {
   console.log(
     `[lexis] models: translation ${env.models.translation} (${env.effort.translation}), ` +
       `mechanical ${env.models.mechanical} (${env.effort.mechanical}), ` +
-      `orchestrator ${env.models.orchestrator} (${env.effort.orchestrator})`,
+      `assistant ${env.models.assistant} (${env.effort.assistant})`,
   );
   if (!env.password) console.warn('[lexis] LEXIS_PASSWORD is not set: only passkeys can sign in, and none can be set up until it is.');
   if (!env.publicUrl) console.log('[lexis] LEXIS_PUBLIC_URL is not set: passkeys bind to whatever host the browser uses.');

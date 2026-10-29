@@ -9,6 +9,8 @@ than what the simple pipeline produced. The reverted work is still in git histor
 `docs/BENCHMARK_CH7_FLASHPROXY.md`, `docs/LOOP_LEDGER.md` on those branches).
 
 Any future rework of this pipeline should internalize the following before repeating them.
+(The later move of the sequencing from an orchestrator agent into code — see
+`HARNESS_DESIGN.md` — left the pipeline itself as described here.)
 
 ## 1. Do not put a cheap model on the actual translation task
 

@@ -4,8 +4,8 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { freshEnv } from './boot.js';
-import { makeEpub } from './epub.js';
-import { type Scenario, fakeQuery, pipelineScenario } from './fake-sdk.js';
+import { type BookOptions, makeBook } from './epub.js';
+import { type ChatScenario, fake, fakeQuery } from './fake-sdk.js';
 
 export interface TestServer {
   base: string;
@@ -17,17 +17,21 @@ export interface TestServer {
   /** This client's session cookie ("name=value"), or ''. */
   cookie(): string;
   setCookie(c: string): void;
-  /** Create a project from a generated EPUB and return its metadata. */
-  createProject(fields?: Record<string, string>): Promise<{ id: string; [k: string]: unknown }>;
+  /** Create a project from a generated book and return its metadata. */
+  createProject(fields?: Record<string, string>, book?: BookOptions): Promise<{ id: string; [k: string]: unknown }>;
   ws(query: string, anonymous?: boolean): Promise<{ socket: WebSocket; messages: Record<string, unknown>[]; closed: Promise<number> }>;
   close(): Promise<void>;
 }
 
 /** Boot the real app on a free port, with the scripted SDK and the fake Claude binary. */
-export async function startServer(opts: { scenario?: Scenario; env?: Record<string, string | undefined> } = {}): Promise<TestServer> {
+export async function startServer(opts: { chat?: ChatScenario; env?: Record<string, string | undefined> } = {}): Promise<TestServer> {
   const dataDir = freshEnv(opts.env);
+  fake.reset();
   const { sdk } = await import('../../src/sdk.js');
-  sdk.query = fakeQuery(opts.scenario ?? pipelineScenario, () => ({ email: 'reader@example.com', subscriptionType: 'max' }));
+  sdk.query = fakeQuery(opts.chat, () => ({ email: 'reader@example.com', subscriptionType: 'max' }));
+  const { timing } = await import('../../src/engine/engine.js');
+  timing.transientBackoffMs = [20, 20];
+  timing.bootDelayMs = 20;
   const { createServer } = await import('../../src/app.js');
   const server = createServer();
   // All interfaces, and addressed as localhost: passkeys need a host name (an IP is not a valid RP ID).
@@ -63,9 +67,9 @@ export async function startServer(opts: { scenario?: Scenario; env?: Record<stri
     setCookie: (c) => {
       cookie = c;
     },
-    async createProject(fields = {}) {
+    async createProject(fields = {}, book = { chapters: 2 }) {
       const form = new FormData();
-      const file = makeEpub(path.join(dataDir, `upload-${Date.now()}.epub`));
+      const file = makeBook(path.join(dataDir, `upload-${Date.now()}-${Math.random().toString(36).slice(2)}.epub`), book);
       form.append('epub', new Blob([new Uint8Array(fs.readFileSync(file))]), 'My Book.epub');
       form.append('targetLanguage', fields.targetLanguage ?? 'Spanish');
       for (const [k, v] of Object.entries(fields)) if (k !== 'targetLanguage') form.append(k, v);

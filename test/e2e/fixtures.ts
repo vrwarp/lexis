@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { type BrowserContext, type CDPSession, type Page, expect, test as base } from '@playwright/test';
-import { makeEpub } from '../support/epub.js';
+import { type BookOptions, makeBook } from '../support/epub.js';
 
 export const PASSWORD = 'e2e-password';
 
@@ -42,8 +42,8 @@ export async function virtualAuthenticator(context: BrowserContext, page: Page, 
 }
 
 /** Create a project through the sidebar form and wait for its view. */
-export async function newProject(page: Page, opts: { name: string; language?: string; context?: string }): Promise<void> {
-  const file = makeEpub(path.join(os.tmpdir(), `lexis-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}.epub`));
+export async function newProject(page: Page, opts: { name: string; language?: string; context?: string; book?: BookOptions }): Promise<void> {
+  const file = makeBook(path.join(os.tmpdir(), `lexis-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}.epub`), opts.book ?? { chapters: 2 });
   await page.getByRole('button', { name: /New translation/ }).click();
   const form = page.locator('#new-project-form');
   await form.locator('input[name=epub]').setInputFiles(file);
@@ -53,6 +53,15 @@ export async function newProject(page: Page, opts: { name: string; language?: st
   await form.getByRole('button', { name: 'Create project' }).click();
   await expect(page.locator('#project-title')).toHaveText(opts.name);
 }
+
+/** Start the run and wait for the review gate. */
+export async function runToReview(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /Start translation/ }).click();
+  await expect(page.locator('#review-banner')).toBeVisible({ timeout: 60_000 });
+}
+
+/** The matrix cell for one chapter stage. */
+export const cell = (page: Page, chapter: string, stage: string) => page.locator(`td[data-step="${chapter}/${stage}"]`);
 
 /** Fail the test on any uncaught page error. */
 export const test = base.extend<{ pageErrors: string[] }>({

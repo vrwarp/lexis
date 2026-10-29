@@ -84,7 +84,7 @@ describe('projects', () => {
     const first = await load();
     const p = first.createProject(input());
     p.emit('agent_text', 'orchestrator', { text: 'x' });
-    p.setStatus('awaiting_review');
+    p.setStatus('running');
     const id = p.meta.id;
     fs.mkdirSync(path.join(dataDir, 'projects', 'garbage'), { recursive: true });
     fs.writeFileSync(path.join(dataDir, 'projects', 'garbage', 'project.json'), '{oops');
@@ -93,7 +93,7 @@ describe('projects', () => {
     const second = await load();
     const again = second.getProject(id)!;
     expect(second.listProjects()).toHaveLength(1);
-    expect(again.meta.status).toBe('awaiting_input');
+    expect(again.meta.status).toBe('paused');
     const seq = again.emit('agent_text', 'orchestrator', { text: 'y' }).seq;
     expect(seq).toBe(3);
   });
