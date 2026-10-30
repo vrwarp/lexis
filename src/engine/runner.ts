@@ -4,6 +4,7 @@ import { claudeEnv, findClaudeBinary } from '../claude.js';
 import { env } from '../env.js';
 import { sdk } from '../sdk.js';
 import type { ModelUsageTotals } from '../types.js';
+import type { TranscriptInput } from './trace.js';
 
 /**
  * One agent run: a fresh Claude Code session with the agent's prompt as its
@@ -56,6 +57,8 @@ export interface RunRequest {
   onEvent: (type: 'agent_text' | 'thinking' | 'tool_use', data: Record<string, unknown>) => void;
   /** Tokens as they stream by, for the live cost display. */
   onUsage?: (model: string, delta: { input: number; output: number; cacheRead: number; cacheWrite: number }) => void;
+  /** Everything, in full, for the trace. */
+  onRecord?: (record: TranscriptInput) => void;
 }
 
 /**
@@ -152,6 +155,13 @@ export async function runAgent(req: RunRequest): Promise<Outcome> {
   let apiError: string | undefined;
   let limitResetsAt: number | undefined;
   let finished = false;
+  const record = (r: TranscriptInput) => {
+    try {
+      req.onRecord?.(r);
+    } catch (e) {
+      console.error('[lexis] trace write failed', e);
+    }
+  };
 
   try {
     const q = sdk.query(
@@ -177,6 +187,7 @@ export async function runAgent(req: RunRequest): Promise<Outcome> {
           ...(CLAUDE_BINARY ? { pathToClaudeCodeExecutable: CLAUDE_BINARY } : {}),
           stderr: (data: string) => {
             if (env.debug) console.error(`[${req.agentName}]`, data.trimEnd());
+            for (const line of data.split('\n')) if (line.trim()) record({ kind: 'stderr', line: line.trimEnd() });
           },
         },
       },
@@ -184,6 +195,27 @@ export async function runAgent(req: RunRequest): Promise<Outcome> {
     );
     for await (const message of q as AsyncIterable<SDKMessage>) {
       switch (message.type) {
+        case 'system': {
+          if (message.subtype === 'init') {
+            record({ kind: 'init', model: message.model, claudeCodeVersion: (message as { claude_code_version?: string }).claude_code_version, tools: message.tools, sessionId: message.session_id });
+          } else if (message.subtype === 'api_retry') {
+            const m = message as { attempt: number; max_retries: number; retry_delay_ms: number; error_status: number | null; error: string };
+            record({ kind: 'api_retry', attempt: m.attempt, maxRetries: m.max_retries, delayMs: m.retry_delay_ms, status: m.error_status, error: m.error });
+          }
+          break;
+        }
+        case 'user': {
+          // Tool results: what the agent read.
+          const content = message.message?.content;
+          if (!Array.isArray(content)) break;
+          for (const block of content) {
+            if (typeof block !== 'object' || block === null || (block as { type?: string }).type !== 'tool_result') continue;
+            const b = block as { tool_use_id?: string; content?: unknown; is_error?: boolean };
+            const text = typeof b.content === 'string' ? b.content : Array.isArray(b.content) ? b.content.map((x) => (typeof x === 'object' && x && 'text' in x ? String((x as { text: unknown }).text) : `[${(x as { type?: string })?.type ?? 'block'}]`)).join('\n') : '';
+            record({ kind: 'tool_result', toolUseId: b.tool_use_id ?? '', content: text, isError: b.is_error });
+          }
+          break;
+        }
         case 'assistant': {
           if (message.error) apiError = message.error;
           const api = message.message;
@@ -202,20 +234,39 @@ export async function runAgent(req: RunRequest): Promise<Outcome> {
             req.onUsage?.(api.model, delta);
           }
           for (const block of api?.content ?? []) {
-            if (block.type === 'text' && block.text.trim()) req.onEvent('agent_text', { text: block.text });
-            else if (block.type === 'thinking' && block.thinking?.trim()) req.onEvent('thinking', { text: block.thinking });
-            else if (block.type === 'tool_use') req.onEvent('tool_use', { tool: block.name, input: summarizeInput(block.input as Record<string, unknown>) });
+            if (block.type === 'text' && block.text.trim()) {
+              req.onEvent('agent_text', { text: block.text });
+              record({ kind: 'text', text: block.text });
+            } else if (block.type === 'thinking' && block.thinking?.trim()) {
+              req.onEvent('thinking', { text: block.thinking });
+              record({ kind: 'thinking', text: block.thinking });
+            } else if (block.type === 'tool_use') {
+              req.onEvent('tool_use', { tool: block.name, input: summarizeInput(block.input as Record<string, unknown>) });
+              record({ kind: 'tool_use', id: block.id, tool: block.name, input: block.input });
+            }
           }
           break;
         }
         case 'rate_limit_event': {
           const info = message.rate_limit_info;
+          record({ kind: 'rate_limit', info });
           if (info?.status === 'rejected') limitResetsAt = info.resetsAt ? info.resetsAt * (info.resetsAt < 1e12 ? 1000 : 1) : undefined;
           break;
         }
         case 'result': {
           finished = true;
           outcome.turns = message.num_turns;
+          record({
+            kind: 'result',
+            subtype: message.subtype,
+            isError: message.is_error,
+            turns: message.num_turns,
+            durationMs: message.duration_ms,
+            apiMs: (message as { duration_api_ms?: number }).duration_api_ms,
+            errors: 'errors' in message ? (message.errors ?? []) : [],
+            usage: message.modelUsage,
+            denials: (message as { permission_denials?: unknown[] }).permission_denials ?? [],
+          });
           for (const [model, u] of Object.entries(message.modelUsage ?? {})) {
             outcome.usage[model] = { inputTokens: u.inputTokens, outputTokens: u.outputTokens, cacheReadInputTokens: u.cacheReadInputTokens, cacheCreationInputTokens: u.cacheCreationInputTokens, costUsd: u.costUSD };
             outcome.model = outcome.model ?? model;
@@ -245,6 +296,7 @@ export async function runAgent(req: RunRequest): Promise<Outcome> {
     }
   } catch (e) {
     const text = e instanceof Error ? e.message : String(e);
+    record({ kind: 'error', message: text });
     if (timedOut) {
       outcome.kind = 'timeout';
       outcome.error = `no result after ${Math.round(req.timeoutMs / 60000)} minutes`;

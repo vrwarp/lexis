@@ -52,6 +52,14 @@
         <label>Context &amp; instructions <span class="muted">(optional)</span>
           <textarea name="context" rows="4" placeholder="Audience, register, names to keep, anything the translators should know…"></textarea>
         </label>
+        <label>Series <span class="muted">(optional)</span>
+          <input type="text" name="series" list="series-names" placeholder="Books that share names, voice and glossary" autocomplete="off" />
+          <datalist id="series-names"></datalist>
+        </label>
+        <label id="inherit-row" class="hidden">Continue from
+          <select name="inheritFrom" id="inherit-from"><option value="none">nothing — start fresh</option></select>
+          <span class="muted small">Its glossary, style guide, metadata and critique charter seed this book.</span>
+        </label>
         <div class="row">
           <button type="submit" class="primary">Create project</button>
           <button type="button" id="cancel-new-project" class="ghost">Cancel</button>
@@ -105,6 +113,7 @@
             </label>
             <button id="instructions-btn" class="ghost" title="Project-wide instructions; steps that start afterwards see them">✎ Instructions</button>
             <button id="download-btn" class="primary hidden">⤓ Download EPUB</button>
+            <a id="diagnostics-btn" class="ghost button-like" href="#" title="A .tgz of this project's trace: every agent run's prompt, transcript, inputs and outputs, and the engine's timeline (docs/ANALYSIS.md)">⬇ Diagnostics</a>
             <label id="cover-btn" class="ghost button-like" title="Optional custom cover for the translated EPUB">
               🖼 Cover<input type="file" id="cover-input" accept=".jpg,.jpeg,.png,.gif,.webp,.svg" hidden />
             </label>
@@ -122,6 +131,7 @@
           </div>
           <div id="run-bar"><span id="run-bar-done"></span><span id="run-bar-running"></span><span id="run-bar-failed"></span></div>
           <p id="run-notice" class="run-notice hidden" role="alert"></p>
+          <p id="run-series" class="run-series muted small hidden"></p>
           <div id="global-steps" aria-label="Book-wide steps"></div>
           <div id="matrix-wrap"><table id="matrix" aria-label="Chapters and stages"><thead></thead><tbody></tbody></table></div>
         </div>

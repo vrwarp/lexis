@@ -46,10 +46,10 @@ test.describe('password gate', () => {
   test('drops back to the sign-in screen when the session is gone', async ({ page, context }) => {
     await signIn(page);
     await context.clearCookies();
+    // The next API call (the form asks for the series list) gets a 401 and the app returns to the password screen.
     await page.getByRole('button', { name: /New translation/ }).click();
-    await page.locator('#new-project-form input[name=targetLanguage]').fill('x');
-    // any API call now gets a 401 and the app returns to the password screen
-    await page.evaluate(() => fetch('/api/projects').then(() => undefined));
+    await expect(page.locator('#login-screen')).toBeVisible();
+    await expect(page.locator('#login-note')).toContainText('Your session ended');
     await page.reload();
     await expect(page.locator('#login-screen')).toBeVisible();
     await signInWithPassword(page, PASSWORD);

@@ -213,6 +213,33 @@ sequences it, not what runs.
 - **Activity** shows every agent's text and tool calls, attributed to its
   chapter; filter it to one chapter or to the engine and assistant only.
 
+## Books in a series
+
+Consistency across a series is carried the way it is carried within a book:
+as data. Give a book a **Series** name when you create it and choose which
+earlier book to **continue from** (the latest finished one by default). When
+its run starts, it inherits that book's master glossary (its entries are
+settled), style guide, metadata and critique charter; the three
+initialization agents then *refresh* those documents for this book — keeping
+every established decision unless the new book contradicts it — instead of
+writing them from nothing, and every chapter agent is told which terms are
+settled. Book 3 inherits from book 2 and so carries everything. Inheritance
+needs the same target language; what was inherited is shown on the run line
+and recorded in the trace. `node dist/cli.js series` lists the books of each
+series.
+
+## Diagnostics and analysis
+
+Every run is recorded in full — each agent run's task prompt, its whole
+transcript (every tool call and result), the files it read and wrote, its
+usage and outcome, and the engine's timeline — so a failure can be explained
+after the fact and the pipeline improved from evidence. **Diagnostics** in the
+project header downloads the bundle; `node dist/cli.js trace <project>
+summary` prints the overview (per-stage times and costs, loop rounds,
+rejections grouped by reason, concurrency utilisation, chapters to look at).
+See [`docs/ANALYSIS.md`](docs/ANALYSIS.md) for what is recorded and how to
+ask it questions.
+
 ## How it works
 
 - **One project = one workspace** under `data/projects/<id>/workspace/` with the
@@ -250,7 +277,9 @@ sequences it, not what runs.
 
 | Method & path | Purpose |
 |---|---|
-| `POST /api/projects` | multipart: `epub`, `name?`, `targetLanguage`, `context?` |
+| `POST /api/projects` | multipart: `epub`, `name?`, `targetLanguage`, `context?`, `series?`, `inheritFrom?` |
+| `GET /api/series` | the books of each series and the one a new book would inherit from |
+| `GET /api/projects/:id/trace/summary`, `…/trace/runs/:run/transcript`, `…/trace/export` | the run record (docs/ANALYSIS.md): JSON or `?format=text`; a run's transcript; the .tgz |
 | `GET /api/projects/:id/pipeline`, `GET /api/projects/:id/step?id=` | the run: chapters, steps, progress, usage; one step with its prompts |
 | `POST /api/projects/:id/run/{start,pause,resume,stop}`, `PUT …/run/concurrency` | run control |
 | `PUT /api/projects/:id/instructions`, `PATCH …/chapters/:key` | instructions; chapter include/exclude, note, title |

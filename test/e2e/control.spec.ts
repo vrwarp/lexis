@@ -97,3 +97,38 @@ test.describe('steering the run', () => {
     await expect(page.locator('#review-summary')).toContainText('3 sections finalized and verified; 0 excluded.');
   });
 });
+
+test.describe('series and diagnostics', () => {
+  test('continues a series from the previous book, and downloads the diagnostics', async ({ page }) => {
+    await signIn(page);
+    const series = `Saga ${Date.now()}`;
+    await newProject(page, { name: 'Saga One', series, book: { chapters: 1 } });
+    await expect(page.locator('#run-series')).toContainText(`Part 1 of the series “${series}”`);
+    await runToReview(page);
+
+    await page.getByRole('button', { name: /New translation/ }).click();
+    await page.locator('#new-project-form input[name=series]').fill(series);
+    await expect(page.locator('#inherit-row')).toBeVisible();
+    await expect(page.locator('#inherit-from')).toHaveValue(/^[0-9a-f]{12}$/);
+    await expect(page.locator('#inherit-from option:checked')).toContainText('Saga One');
+    await page.locator('#new-project-form button', { hasText: 'Cancel' }).click();
+
+    await newProject(page, { name: 'Saga Two', series, book: { chapters: 1 } });
+    await expect(page.locator('.project-item.active .p-series')).toHaveText(`${series} #2`);
+    await expect(page.locator('#run-series')).toContainText('Will inherit the glossary');
+    await runToReview(page);
+    await expect(page.locator('#run-series')).toContainText('Inherited master glossary, style guide, metadata, critique charter from “Saga One” (1 glossary entries)');
+    await expect(page.locator('#feed')).toContainText('Continues "Saga One"');
+
+    // The diagnostics bundle and a run's transcript are one click away.
+    const download = page.waitForEvent('download');
+    await page.getByRole('link', { name: /Diagnostics/ }).click();
+    expect((await download).suggestedFilename()).toMatch(/^lexis-trace-[0-9a-f]{12}\.tgz$/);
+    await cell(page, CH1, 'draft').locator('button').click();
+    const popup = page.waitForEvent('popup');
+    await page.locator('#step-runs').getByRole('link', { name: 'transcript' }).first().click();
+    const transcript = await popup;
+    await expect(transcript.locator('body')).toContainText('## Task prompt');
+    await expect(transcript.locator('body')).toContainText('part 2 of the series');
+  });
+});

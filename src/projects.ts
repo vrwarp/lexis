@@ -121,15 +121,51 @@ export function getProject(id: string): Project | undefined {
   return projects.get(id);
 }
 
+/** Books grouped by series name, in order, with the one a new book would inherit from. */
+export function listSeries(): { name: string; books: ProjectMeta[]; latest?: ProjectMeta }[] {
+  const by = new Map<string, ProjectMeta[]>();
+  for (const p of projects.values()) if (p.meta.series) by.set(p.meta.series, [...(by.get(p.meta.series) ?? []), p.meta]);
+  return [...by.entries()]
+    .map(([name, books]) => {
+      books.sort((a, b) => (a.seriesIndex ?? 0) - (b.seriesIndex ?? 0) || a.createdAt.localeCompare(b.createdAt));
+      // Prefer the latest finished book; otherwise the latest one.
+      const latest = [...books].reverse().find((b) => b.status === 'completed') ?? books[books.length - 1];
+      return { name, books, latest };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export class ProjectError extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+  ) {
+    super(message);
+  }
+}
+
 export function createProject(input: {
   name: string;
   targetLanguage: string;
   context: string;
   epubBuffer: Buffer;
   epubFilename: string;
+  series?: string;
+  /** A project id; null means "start fresh" even inside a series; undefined means the series' latest book. */
+  inheritFrom?: string | null;
 }): Project {
   const id = randomBytes(6).toString('hex');
   const now = new Date().toISOString();
+  const series = input.series?.trim() || undefined;
+  let inheritFrom = input.inheritFrom === null ? undefined : input.inheritFrom?.trim() || undefined;
+  if (series && input.inheritFrom === undefined) inheritFrom = listSeries().find((s) => s.name === series)?.latest?.id;
+  if (inheritFrom) {
+    const source = projects.get(inheritFrom);
+    if (!source) throw new ProjectError('the book to inherit from does not exist', 404);
+    if (source.meta.targetLanguage.trim().toLowerCase() !== input.targetLanguage.trim().toLowerCase()) {
+      throw new ProjectError(`cannot inherit from a book translated into ${source.meta.targetLanguage}: the glossary is language-specific`);
+    }
+  }
   const meta: ProjectMeta = {
     id,
     name: input.name,
@@ -139,6 +175,8 @@ export function createProject(input: {
     createdAt: now,
     updatedAt: now,
     epubFilename: input.epubFilename,
+    ...(series ? { series, seriesIndex: (listSeries().find((s) => s.name === series)?.books.length ?? 0) + 1 } : {}),
+    ...(inheritFrom ? { inheritFrom } : {}),
   };
   const project = new Project(meta);
   fs.mkdirSync(project.workspace, { recursive: true });

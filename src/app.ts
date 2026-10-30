@@ -12,7 +12,9 @@ import { coverMime, replaceCover } from './epub.js';
 import { assistantFor } from './assistant.js';
 import { bootEngines, engineFor } from './engine/engine.js';
 import { RERUN_STAGES, type ChapterStage } from './types.js';
-import { createProject, getProject, listProjects, type Project } from './projects.js';
+import { ProjectError, createProject, getProject, listProjects, listSeries, type Project } from './projects.js';
+import { render as renderTrace, renderTranscript, summarize, type Section } from './engine/trace.js';
+import os from 'node:os';
 import { listVersions, revertToVersion, saveVersion } from './versioning.js';
 
 /** A file inside a package that doesn't export it: find the package root from its entry point. */
@@ -104,6 +106,17 @@ export function createServer(): http.Server {
     res.json(listProjects().map((p) => p.meta));
   });
 
+  /** Series: the books in each, and the one a new book would inherit from. */
+  app.get('/api/series', (_req, res) => {
+    res.json(
+      listSeries().map((s) => ({
+        name: s.name,
+        latest: s.latest?.id,
+        books: s.books.map((b) => ({ id: b.id, name: b.name, status: b.status, seriesIndex: b.seriesIndex, targetLanguage: b.targetLanguage })),
+      })),
+    );
+  });
+
   app.post(
     '/api/projects',
     upload.single('epub'),
@@ -112,18 +125,29 @@ export function createServer(): http.Server {
         res.status(400).json({ error: 'an .epub file is required' });
         return;
       }
-      const { name, targetLanguage, context } = req.body as Record<string, string>;
+      const { name, targetLanguage, context, series, inheritFrom } = req.body as Record<string, string>;
       if (!targetLanguage?.trim()) {
         res.status(400).json({ error: 'targetLanguage is required' });
         return;
       }
-      const project = createProject({
-        name: name?.trim() || req.file.originalname.replace(/\.epub$/i, ''),
-        targetLanguage: targetLanguage.trim(),
-        context: context?.trim() ?? '',
-        epubBuffer: req.file.buffer,
-        epubFilename: req.file.originalname,
-      });
+      let project: Project;
+      try {
+        project = createProject({
+          name: name?.trim() || req.file.originalname.replace(/\.epub$/i, ''),
+          targetLanguage: targetLanguage.trim(),
+          context: context?.trim() ?? '',
+          epubBuffer: req.file.buffer,
+          epubFilename: req.file.originalname,
+          series: typeof series === 'string' ? series.trim().slice(0, 120) : undefined,
+          inheritFrom: typeof inheritFrom !== 'string' || inheritFrom === '' ? undefined : inheritFrom === 'none' ? null : inheritFrom.trim(),
+        });
+      } catch (e) {
+        if (e instanceof ProjectError) {
+          res.status(e.status).json({ error: e.message });
+          return;
+        }
+        throw e;
+      }
       res.json(project.meta);
     }),
   );
@@ -162,13 +186,61 @@ export function createServer(): http.Server {
   app.get('/api/projects/:id/step', (req, res) => {
     const project = requireProject(req, res);
     if (!project) return;
-    const step = engineFor(project).step(String(req.query.id ?? ''));
+    const step = engineFor(project).stepWithPrompts(String(req.query.id ?? ''));
     if (!step) {
       res.status(404).json({ error: 'unknown step' });
       return;
     }
     res.json(step);
   });
+
+  // ---------- the trace (docs/ANALYSIS.md) ----------
+
+  app.get('/api/projects/:id/trace/summary', (req, res) => {
+    const project = requireProject(req, res);
+    if (!project) return;
+    const engine = engineFor(project);
+    const summary = summarize(project.meta, engine.state, engine.trace);
+    if (req.query.format === 'text') {
+      const section = String(req.query.section ?? 'summary') as Section;
+      res.type('text/plain').send(renderTrace(summary, ['summary', 'stages', 'chapters', 'failures', 'timeline', 'prompts'].includes(section) ? section : 'summary'));
+      return;
+    }
+    res.json(summary);
+  });
+
+  app.get('/api/projects/:id/trace/runs/:run/transcript', (req, res) => {
+    const project = requireProject(req, res);
+    if (!project) return;
+    const engine = engineFor(project);
+    const runId = String(req.params.run);
+    if (!/^[0-9a-f]{8}$/.test(runId)) {
+      res.status(404).json({ error: 'unknown run' });
+      return;
+    }
+    const records = engine.trace.transcript(runId);
+    const prompt = engine.trace.prompt(runId);
+    if (!records.length && prompt === null) {
+      res.status(404).json({ error: 'unknown run' });
+      return;
+    }
+    if (req.query.format === 'json') {
+      res.json({ prompt, records, run: engine.trace.runs().find((r) => r.id === runId) ?? null });
+      return;
+    }
+    res.type('text/plain').send(renderTranscript(records, prompt, engine.trace.runs().find((r) => r.id === runId)));
+  });
+
+  app.get(
+    '/api/projects/:id/trace/export',
+    wrap(async (req, res) => {
+      const project = requireProject(req, res);
+      if (!project) return;
+      const out = path.join(os.tmpdir(), `lexis-trace-${project.meta.id}-${Date.now()}.tgz`);
+      await engineFor(project).trace.export(out);
+      res.download(out, `lexis-trace-${project.meta.id}.tgz`, () => fs.rmSync(out, { force: true }));
+    }),
+  );
 
   const body = (req: express.Request) => (req.body ?? {}) as Record<string, unknown>;
 

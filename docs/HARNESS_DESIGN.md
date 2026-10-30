@@ -146,6 +146,23 @@ UI before and during the run.
 On a subscription, concurrency trades against rate limits: the engine backs
 off and pauses when Claude says so, and resumes by itself.
 
+### Evidence
+
+Every agent run is recorded in full (prompt, transcript, inputs, outputs,
+usage, outcome) along with the engine's timeline, and summarised by
+`trace summary` — the per-stage times, costs, loop rounds, rejections and
+utilisation that say where the pipeline struggles. `ANALYSIS.md` describes
+it. A change to a prompt or a setting can be judged on the same chapters by
+prompt version, which is the A/B evidence `LESSONS.md` §5 asks for.
+
+### Series
+
+A book in a series starts from the previous book's glossary, style guide,
+metadata and charter (the data that carries consistency, `LESSONS.md` §2),
+and its initialization agents refresh those documents instead of writing
+them afresh. Nothing else changes: the barrier, the loops and the gate are
+the same.
+
 ## What deliberately did not change
 
 - The thirteen agents' prompts, apart from mechanics (which tool scans for

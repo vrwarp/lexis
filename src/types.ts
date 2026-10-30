@@ -38,6 +38,13 @@ export interface ProjectMeta {
   lastError?: string;
   /** Accumulated token/cost usage across everything this project ran. */
   usage?: UsageTotals;
+  /** The series this book belongs to, and its place in it. */
+  series?: string;
+  seriesIndex?: number;
+  /** The project whose glossary, style guide, metadata and charter this one starts from. */
+  inheritFrom?: string;
+  /** What was inherited, once prepare has done it. */
+  inherited?: { from: string; fromName: string; at: string; files: string[]; glossaryEntries: number };
 }
 
 export interface VersionInfo {
@@ -81,8 +88,8 @@ export interface AgentRun {
   model?: string;
   /** Why it failed, when it did. */
   error?: string;
-  /** The exact task prompt the agent was given. */
-  prompt: string;
+  /** Hash of the task prompt; the text is in the project's trace. */
+  promptHash?: string;
 }
 
 export interface Step {

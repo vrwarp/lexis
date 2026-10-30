@@ -42,7 +42,7 @@ export async function virtualAuthenticator(context: BrowserContext, page: Page, 
 }
 
 /** Create a project through the sidebar form and wait for its view. */
-export async function newProject(page: Page, opts: { name: string; language?: string; context?: string; book?: BookOptions }): Promise<void> {
+export async function newProject(page: Page, opts: { name: string; language?: string; context?: string; book?: BookOptions; series?: string }): Promise<void> {
   const file = makeBook(path.join(os.tmpdir(), `lexis-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}.epub`), opts.book ?? { chapters: 2 });
   await page.getByRole('button', { name: /New translation/ }).click();
   const form = page.locator('#new-project-form');
@@ -50,6 +50,7 @@ export async function newProject(page: Page, opts: { name: string; language?: st
   await form.locator('input[name=name]').fill(opts.name);
   await form.locator('input[name=targetLanguage]').fill(opts.language ?? 'Spanish');
   if (opts.context) await form.locator('textarea[name=context]').fill(opts.context);
+  if (opts.series) await form.locator('input[name=series]').fill(opts.series);
   await form.getByRole('button', { name: 'Create project' }).click();
   await expect(page.locator('#project-title')).toHaveText(opts.name);
 }

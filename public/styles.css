@@ -167,6 +167,9 @@ input:focus, textarea:focus { outline: 1px solid var(--accent); }
 #run-bar-failed { background: var(--red); }
 #global-steps { display: flex; gap: 6px; flex-wrap: wrap; }
 .run-notice { margin: 0; font-size: 12px; color: var(--red); }
+.run-series { margin: 0; }
+.p-series { font-family: var(--font-mono); font-size: 10px; color: var(--purple); }
+#new-project-form select { width: 100%; background: var(--bg-inset); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; }
 .gstep {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 3px 9px; font-size: 11px; border-radius: 8px;

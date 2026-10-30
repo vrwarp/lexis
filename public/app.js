@@ -95,9 +95,10 @@ async function refreshProjects() {
     el.className = 'project-item' + (state.current?.id === p.id ? ' active' : '');
     el.innerHTML = `
       <div class="p-name"></div>
-      <div class="p-sub"><span class="chip status" data-status="${p.status}">${label(p.status)}</span><span class="p-lang"></span></div>`;
+      <div class="p-sub"><span class="chip status" data-status="${p.status}">${label(p.status)}</span><span class="p-lang"></span><span class="p-series"></span></div>`;
     el.querySelector('.p-name').textContent = p.name;
     el.querySelector('.p-lang').textContent = p.targetLanguage;
+    if (p.series) el.querySelector('.p-series').textContent = `${p.series} #${p.seriesIndex ?? '?'}`;
     el.addEventListener('click', () => selectProject(p.id).catch((e) => alert(e.message)));
     list.appendChild(el);
   }
@@ -140,6 +141,8 @@ async function selectProject(id) {
   renderRun();
   renderMatrix();
   renderStatus();
+  $('diagnostics-btn').href = projectApi('/trace/export');
+  renderSeries();
   closeAsset();
   closeStep();
   if (!$('tab-files').classList.contains('hidden')) loadFiles();
@@ -254,6 +257,23 @@ async function refreshDetail() {
   if (state.current?.id !== id) return;
   state.current = { ...state.current, ...detail };
   renderStatus();
+  renderSeries();
+}
+
+/** Where this book sits in its series and what it inherited. */
+function renderSeries() {
+  const p = state.current;
+  const el = $('run-series');
+  if (!p?.series && !p?.inheritFrom) { el.classList.add('hidden'); return; }
+  let text = p.series ? `Part ${p.seriesIndex ?? '?'} of the series “${p.series}”.` : '';
+  if (p.inherited) {
+    const files = (p.inherited.files ?? []).map((f) => f.replace('notes/', '').replace('.json', '').replace('.md', '').replace('_', ' '));
+    text += ` Inherited ${files.length ? files.join(', ') : 'nothing'} from “${p.inherited.fromName}”${p.inherited.glossaryEntries ? ` (${p.inherited.glossaryEntries} glossary entries)` : ''}; the initialization agents refresh them for this book.`;
+  } else if (p.inheritFrom) {
+    text += ' Will inherit the glossary, style guide, metadata and charter from the previous book when the run starts.';
+  }
+  el.textContent = text;
+  el.classList.remove('hidden');
 }
 
 /** Re-read the whole run (after a revert, which changes many steps at once). */
@@ -556,6 +576,14 @@ function renderStepModal(step) {
       });
       li.querySelector('.li-actions').appendChild(b);
     }
+    const t = document.createElement('a');
+    t.className = 'ghost small button-like';
+    t.textContent = 'transcript';
+    t.title = 'Everything this run did: thinking, every tool call and result, the final result';
+    t.href = projectApi(`/trace/runs/${r.id}/transcript`);
+    t.target = '_blank';
+    t.rel = 'noreferrer';
+    li.querySelector('.li-actions').appendChild(t);
     runs.appendChild(li);
   }
   $('step-prompt-box').classList.toggle('hidden', !step.runs?.some((r) => r.prompt));
@@ -1053,9 +1081,33 @@ function renderVersions(versions) {
 
 /* ---------------- wiring ---------------- */
 
+let seriesList = [];
+async function loadSeries() {
+  try { seriesList = await api('/api/series'); } catch { seriesList = []; }
+  const dl = $('series-names');
+  dl.innerHTML = '';
+  for (const s of seriesList) dl.appendChild(new Option(s.name));
+  updateInheritOptions();
+}
+
+/** The "continue from" choices for the series typed in the form: its books, latest first and preselected. */
+function updateInheritOptions() {
+  const name = $('new-project-form').elements.series.value.trim();
+  const row = $('inherit-row');
+  const sel = $('inherit-from');
+  const s = seriesList.find((x) => x.name === name);
+  sel.innerHTML = '<option value="none">nothing — start fresh</option>';
+  if (!name || !s) { row.classList.toggle('hidden', !name); return; }
+  for (const b of [...s.books].reverse()) sel.add(new Option(`${b.name} (#${b.seriesIndex ?? '?'}, ${label(b.status)})`, b.id));
+  if (s.latest) sel.value = s.latest;
+  row.classList.remove('hidden');
+}
+$('new-project-form').elements.series.addEventListener('input', updateInheritOptions);
+
 $('new-project-btn').addEventListener('click', () => {
   $('new-project-form').classList.remove('hidden');
   $('new-project-btn').classList.add('hidden');
+  loadSeries();
 });
 $('cancel-new-project').addEventListener('click', () => {
   $('new-project-form').classList.add('hidden');

@@ -135,7 +135,10 @@ test.describe('translating a book', () => {
     await page.getByPlaceholder(/Ask the assistant/).fill(`rerun ${CH1} from final: shorter sentences`);
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.locator('#feed .ev.assistant.kind-text').last()).toContainText('Queued 1 chapter(s) from final');
-    await expect(page.locator('#run-state')).toHaveText('Running');
+    // The engine ran the polish again (the fake is quick, so the run may already be back at the gate).
+    await cell(page, CH1, 'final').locator('button').click();
+    await expect(page.locator('#step-runs li')).toHaveCount(2, { timeout: 60_000 });
+    await page.locator('#step-close').click();
     await expect(page.locator('#review-banner')).toBeVisible({ timeout: 60_000 });
   });
 

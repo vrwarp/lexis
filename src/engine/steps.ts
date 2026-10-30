@@ -23,6 +23,8 @@ export interface StepContext {
   navPath?: string;
   ncxPath?: string;
   maxLoopRounds: number;
+  /** Set when this book inherited its notes from an earlier book in its series. */
+  inherited?: { fromName: string; files: string[]; glossaryEntries: number };
 }
 
 /** Where a chapter's files live. `key` is the agents' `<original file>`. */
@@ -87,6 +89,9 @@ const CONTRACT = `# Harness contract
 function header(ctx: StepContext, c?: Chapter): string {
   const lines = [`# Project`, `- Translating into: ${ctx.meta.targetLanguage}`];
   lines.push(`- Instructions from the user: ${ctx.meta.context?.trim() ? ctx.meta.context.trim() : '(none)'}`);
+  if (ctx.meta.series) {
+    lines.push(`- This book is part ${ctx.meta.seriesIndex ?? '?'} of the series "${ctx.meta.series}".${ctx.inherited ? ` The glossary includes ${ctx.inherited.glossaryEntries} terms established in "${ctx.inherited.fromName}": they are settled; use them as they are.` : ''}`);
+  }
   if (c) {
     const included = ctx.chapters.filter((x) => !x.excluded);
     const pos = included.findIndex((x) => x.key === c.key) + 1;
@@ -97,6 +102,14 @@ function header(ctx: StepContext, c?: Chapter): string {
 }
 
 const XHTML_RULE = `The source is an XHTML document: keep every tag, attribute, id and class exactly as it is and translate only the human-readable text (including title and alt attributes). The output must be a complete XHTML document that opens in a reader.`;
+
+/** When a book continues a series, the initialization agents refresh the earlier book's document instead of starting over. */
+function refresh(ctx: StepContext, rel: string, what: string): string[] {
+  if (!ctx.inherited?.files.includes(rel)) return [];
+  return [
+    `This book continues the series: \`${rel}\` already exists, produced for "${ctx.inherited.fromName}". Read it first. Keep every decision it established (languages and dialect, audience, register, conventions, transliteration choices, watchlist entries${what ? `, ${what}` : ''}) unless this book plainly contradicts it; update only what is specific to this book. Overwrite the file with the refreshed version.`,
+  ];
+}
 
 /** The task prompt for one agent invocation. `hint` carries why the previous attempt was rejected. */
 export function taskPrompt(ctx: StepContext, mode: RunMode, c: Chapter | undefined, opts: { round?: number; hint?: string } = {}): string {
@@ -114,13 +127,14 @@ export function taskPrompt(ctx: StepContext, mode: RunMode, c: Chapter | undefin
         `Write \`notes/metadata.json\` as your instructions describe. The reading order and titles are in \`notes/contents.json\` (${included.length} documents to translate).`,
         `Narrative to sample: ${sample.join(', ') || 'the files listed in notes/contents.json'}.`,
         `The user's instructions above are the "user-provided project description": honour them when choosing the target dialect, audience and register.`,
+        ...refresh(ctx, 'notes/metadata.json', 'linguistic guidance'),
       );
       break;
     case 'style':
-      parts.push(`# Task`, `Write \`notes/style_guide.md\`. Read \`notes/metadata.json\` and \`notes/contents.json\` first; sample narrative from: ${sample.join(', ') || 'the files in notes/contents.json'}.`);
+      parts.push(`# Task`, `Write \`notes/style_guide.md\`. Read \`notes/metadata.json\` and \`notes/contents.json\` first; sample narrative from: ${sample.join(', ') || 'the files in notes/contents.json'}.`, ...refresh(ctx, 'notes/style_guide.md', "the author's voice"));
       break;
     case 'charter':
-      parts.push(`# Task`, `Write \`notes/critique_charter.md\` from \`notes/metadata.json\`, \`notes/style_guide.md\` and \`notes/contents.json\`.`);
+      parts.push(`# Task`, `Write \`notes/critique_charter.md\` from \`notes/metadata.json\`, \`notes/style_guide.md\` and \`notes/contents.json\`.`, ...refresh(ctx, 'notes/critique_charter.md', ''));
       break;
     case 'summarize':
       parts.push(`# Task`, `Section file: \`${p!.source}\`. Write \`${p!.summary}\` and \`${p!.challenges}\`. The reading order is in \`notes/contents.json\`.`);
@@ -209,6 +223,50 @@ export function taskPrompt(ctx: StepContext, mode: RunMode, c: Chapter | undefin
   if (opts.hint) parts.push('', `# Previous attempt`, `The previous attempt was rejected: ${opts.hint}. Correct this.`);
   parts.push('', CONTRACT);
   return parts.join('\n');
+}
+
+/** The files an invocation reads and the files it writes, for the trace (inputs snapshotted before, outputs after). */
+export function filesOf(ctx: StepContext, mode: RunMode, c?: Chapter): { inputs: string[]; outputs: string[] } {
+  const p = c ? chapterPaths(c) : undefined;
+  const notes = ['notes/master_glossary.json', 'notes/contents.json', 'notes/style_guide.md', 'notes/metadata.json'];
+  const included = ctx.chapters.filter((x) => !x.excluded);
+  const sample = included.filter((x) => x.words >= 300).slice(0, 3).map((x) => `original/${x.path}`);
+  switch (mode) {
+    case 'metadata':
+      return { inputs: ['notes/contents.json', 'notes/metadata.json', ...sample], outputs: ['notes/metadata.json'] };
+    case 'style':
+      return { inputs: ['notes/contents.json', 'notes/metadata.json', 'notes/style_guide.md', ...sample], outputs: ['notes/style_guide.md'] };
+    case 'charter':
+      return { inputs: ['notes/contents.json', 'notes/metadata.json', 'notes/style_guide.md', 'notes/critique_charter.md'], outputs: ['notes/critique_charter.md'] };
+    case 'summarize':
+      return { inputs: [p!.source, 'notes/contents.json'], outputs: [p!.summary, p!.challenges] };
+    case 'lexicon':
+      return { inputs: [p!.source, 'notes/metadata.json'], outputs: [p!.lexicon] };
+    case 'glossary':
+      return { inputs: [p!.source, p!.lexicon, 'notes/master_glossary.json', 'notes/metadata.json'], outputs: ['notes/master_glossary.json'] };
+    case 'translate':
+      return { inputs: [p!.source, p!.summary, p!.challenges, ...notes], outputs: [p!.draft] };
+    case 'refine':
+      return { inputs: [p!.source, p!.draft, p!.omission, p!.summary, p!.challenges, ...notes], outputs: [p!.draft] };
+    case 'audit':
+      return { inputs: [p!.source, p!.draft], outputs: [p!.omission] };
+    case 'scan':
+      return { inputs: [p!.draft, 'notes/metadata.json'], outputs: [p!.stray] };
+    case 'fix':
+      return { inputs: [p!.source, p!.draft, p!.stray, p!.summary, p!.challenges, ...notes], outputs: [p!.draft] };
+    case 'critique':
+      return { inputs: [p!.source, p!.draft, 'notes/critique_charter.md', ...notes], outputs: [p!.critique] };
+    case 'final':
+      return { inputs: [p!.source, p!.draft, p!.critique, p!.summary, p!.challenges, ...notes], outputs: [p!.final] };
+    case 'verify':
+      return { inputs: [p!.source, p!.final, p!.critique, 'notes/critique_charter.md', 'notes/metadata.json'], outputs: [p!.finalCheck] };
+    case 'verify-fix':
+      return { inputs: [p!.source, p!.final, p!.finalCheck, ...notes], outputs: [p!.final] };
+    case 'package': {
+      const nav = [ctx.navPath, ctx.ncxPath].filter((x): x is string => Boolean(x)).map((x) => `final/${x}`);
+      return { inputs: [`final/${ctx.opfPath}`, ...nav, 'notes/metadata.json'], outputs: [`final/${ctx.opfPath}`, ...nav] };
+    }
+  }
 }
 
 // ---------- checking what an agent wrote ----------

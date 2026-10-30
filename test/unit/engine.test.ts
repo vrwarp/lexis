@@ -89,7 +89,7 @@ describe('a whole run', () => {
     expect(project.meta.usage!.totalCostUsd).toBeGreaterThan(0.5);
     expect(engine.state.steps[`${CH(1)}/draft`].costUsd).toBeCloseTo(0.06);
     expect(engine.state.steps[`${CH(1)}/draft`].runs.map((r) => r.mode)).toEqual(['translate', 'audit']);
-    expect(engine.state.steps.metadata.runs[0].prompt).toContain('Write `notes/metadata.json`');
+    expect(engine.trace.prompt(engine.state.steps.metadata.runs[0].id)).toContain('Write `notes/metadata.json`');
     // Milestone versions.
     const { listVersions } = await import('../../src/versioning.js');
     const labels = (await listVersions(project)).map((v) => v.label);
@@ -165,7 +165,7 @@ describe('loops and checks', () => {
     expect(meta.state).toBe('done');
     expect(meta.runs.map((r) => r.state)).toEqual(['failed', 'done']);
     expect(meta.runs[0].error).toMatch(/not a JSON object/);
-    expect(meta.runs[1].prompt).toContain('The previous attempt was rejected: `notes/metadata.json` is not a JSON object');
+    expect(engine.trace.prompt(meta.runs[1].id)).toContain('The previous attempt was rejected: `notes/metadata.json` is not a JSON object');
     const draft = engine.state.steps[`${CH(1)}/draft`];
     expect(draft.state).toBe('failed');
     expect(draft.error).toMatch(/lost the XHTML structure/);
@@ -383,6 +383,156 @@ describe('steering', () => {
     await untilRun(engine, 'completed');
     expect(fs.statSync(path.join(ws, 'translated_book.epub')).mtimeMs).toBeGreaterThan(packaged);
     expect(modesOf('package')).toHaveLength(2);
+  });
+});
+
+describe('the trace', () => {
+  it('records every agent run with its prompt, transcript, inputs, outputs and usage, plus the engine timeline', async () => {
+    const { engine, project, ws } = await engineProject({ book: { chapters: 2 } });
+    await timingFor();
+    fake.on('metadata', { fault: 'garbage' });
+    fake.on(`audit:${CH(1)}`, { status: 'INCOMPLETE' }, {});
+    engine.start();
+    await untilRun(engine, 'awaiting_review');
+    engine.approve();
+    await untilRun(engine, 'completed');
+
+    const runs = engine.trace.runs();
+    expect(runs.length).toBe(fake.calls.length);
+    expect(runs.every((r) => r.v === 1 && r.id && r.step && r.agent && r.mode && r.model && r.startedAt && r.endedAt)).toBe(true);
+    // The rejected metadata run and its retry.
+    const meta = runs.filter((r) => r.mode === 'metadata');
+    expect(meta.map((r) => [r.attempt, r.outcome, r.check?.ok])).toEqual([[1, 'ok', false], [2, 'ok', true]]);
+    expect(meta[0].check?.problem).toMatch(/not a JSON object/);
+    expect(meta[0].outputs[0]).toMatchObject({ path: 'notes/metadata.json', changed: true });
+    expect(engine.trace.prompt(meta[1].id)).toContain('The previous attempt was rejected');
+    // A translation run: what it read, what it wrote, how the text looks.
+    const translate = runs.find((r) => r.mode === 'translate' && r.chapter === CH(1))!;
+    expect(translate.inputs.map((i) => i.path)).toEqual(expect.arrayContaining(['original/OEBPS/chapter1.xhtml', `notes/${CH(1)}.summary.txt`, 'notes/master_glossary.json', 'notes/style_guide.md']));
+    expect(translate.outputs).toEqual([expect.objectContaining({ path: 'draft/OEBPS/chapter1.xhtml', changed: true })]);
+    expect(translate.outputs[0].prevHash).toBeUndefined();
+    expect(translate.outputs[0].metrics).toMatchObject({ paragraphs: 6 });
+    expect(translate.inputs[0].metrics?.words).toBeGreaterThan(50);
+    expect(translate.usage).toMatchObject({ input: 4000, output: 1500, costUsd: 0.05 });
+    expect(translate.tools).toEqual({ Read: 1 });
+    expect(translate.chapterWords).toBeGreaterThan(0);
+    expect(translate.agentPrompt).toMatch(/^[0-9a-f]{64}$/);
+    expect(translate.model).toBe('claude-opus-5-5');
+    expect(translate.effort).toBe('high');
+    expect(translate.reply).toContain('Done: translate');
+    // The refine round after an incomplete audit saw the report and changed the draft.
+    const refine = runs.find((r) => r.mode === 'refine')!;
+    expect(refine.inputs.map((i) => i.path)).toContain(`notes/${CH(1)}.omission_report.md`);
+    expect(refine.outputs[0]).toMatchObject({ changed: true });
+    expect(refine.outputs[0].prevHash).toBe(translate.outputs[0].hash);
+    // Blobs hold the content, deduplicated.
+    expect(engine.trace.blob(translate.outputs[0].hash)!.toString()).toContain('ES');
+    const sourceRefs = runs.flatMap((r) => r.inputs.filter((i) => i.path === 'original/OEBPS/chapter1.xhtml'));
+    expect(new Set(sourceRefs.map((i) => i.hash)).size).toBe(1);
+    expect(fs.readdirSync(path.join(project.dir, 'trace', 'blobs')).length).toBeLessThan(runs.length * 4);
+    // The transcript has the whole session.
+    const kinds = engine.trace.transcript(translate.id).map((r) => r.kind);
+    expect(kinds).toEqual(['init', 'tool_use', 'text', 'result', 'check']);
+    const result = engine.trace.transcript(translate.id).find((r) => r.kind === 'result') as { turns: number };
+    expect(result.turns).toBe(3);
+    // Agent prompt versions are kept.
+    expect(fs.readdirSync(path.join(project.dir, 'trace', 'agents')).some((f) => f.startsWith('primary-translator-'))).toBe(true);
+    // The timeline has the run's shape.
+    const timeline = engine.trace.timelineRecords();
+    const kindsSeen = new Set(timeline.map((t) => t.kind));
+    for (const k of ['run', 'step', 'checkpoint', 'review']) expect(kindsSeen, k).toContain(k);
+    expect(timeline.filter((t) => t.kind === 'run').map((t) => t.state)).toEqual(['running', 'awaiting_review', 'running', 'completed']);
+    expect(timeline.filter((t) => t.kind === 'step' && t.state === 'done').length).toBe(Object.values(engine.state.steps).filter((s) => s.state === 'done').length);
+    expect(JSON.parse(fs.readFileSync(path.join(project.dir, 'trace', 'meta.json'), 'utf8'))).toMatchObject({ v: 1, project: { id: project.meta.id }, config: { concurrency: 3 } });
+    void ws;
+  });
+
+  it('summarizes a run: totals, modes, loops, rejections, chapters, utilization, chains', async () => {
+    const { engine, project } = await engineProject({ book: { chapters: 2 } });
+    await timingFor();
+    fake.on('style', { fault: 'garbage' });
+    fake.on(`scan:${CH(2)}`, { status: 'ISSUES_FOUND' }, { status: 'ISSUES_FOUND' }, { status: 'ISSUES_FOUND' }, { status: 'ISSUES_FOUND' });
+    fake.on(`verify:${CH(1)}`, { status: 'ISSUES_FOUND' });
+    engine.start();
+    await until(() => fake.calls.length >= 3);
+    engine.pause();
+    await until(() => fake.active === 0);
+    await new Promise((r) => setTimeout(r, 30));
+    engine.resume();
+    await untilRun(engine, 'awaiting_review');
+    engine.approve();
+    await untilRun(engine, 'completed');
+    const { summarize, render } = await import('../../src/engine/trace.js');
+    const s = summarize(project.meta, engine.state, engine.trace);
+    expect(s.totals.runs).toBe(fake.calls.length);
+    expect(s.totals.rejected).toBe(1);
+    expect(s.totals.ok).toBe(fake.calls.length - 1);
+    expect(s.totals.costUsd).toBeCloseTo(project.meta.usage!.totalCostUsd, 5);
+    expect(s.rejections).toEqual([{ reason: 'the style guide <file> is empty or far too short', count: 1, examples: [expect.any(String)] }]);
+    expect(s.loops.stray).toEqual({ 1: 1, 3: 1 });
+    expect(s.loops.strayCapHits).toBe(1);
+    expect(s.loops.verifyIssues).toBe(1);
+    expect(s.loops.verifyPass).toBe(1);
+    const scan = s.byMode.find((m) => m.mode === 'scan')!;
+    expect(scan.runs).toBe(4);
+    expect(scan.agent).toBe('stray-phrase-detector');
+    const ch2 = s.chapters.find((c) => c.key === CH(2))!;
+    expect(ch2.strayRounds).toBe(3);
+    expect(ch2.warnings[0]).toMatch(/stray/);
+    expect(ch2.expansion).toBeGreaterThan(0);
+    expect(ch2.costPer1k).toBeGreaterThan(0);
+    expect(s.chapters.find((c) => c.key === 'cover.xhtml')!.excluded).toBe(true);
+    expect(s.concurrency.utilization.reduce((a, u) => a + u.pct, 0)).toBeGreaterThan(99);
+    expect(s.concurrency.utilization.some((u) => u.inFlight >= 2)).toBe(true);
+    expect(s.pauses.length).toBeGreaterThanOrEqual(1);
+    expect(s.chains.glossaryMs).toBeGreaterThan(0);
+    expect(s.chains.longestChapter).toBeTruthy();
+    expect(s.prompts.find((p) => p.agent === 'stray-phrase-detector')!.runs).toBe(4);
+    expect(s.noChange).toEqual([]);
+    expect(s.run.wallMs).toBeGreaterThan(0);
+    for (const section of ['summary', 'stages', 'chapters', 'failures', 'timeline', 'prompts'] as const) expect(render(s, section).length).toBeGreaterThan(20);
+    expect(render(s)).toContain('agent runs:');
+    expect(render(s, 'failures')).toContain('rejected — the style guide');
+  });
+});
+
+describe('series', () => {
+  it('starts a sequel from the previous book\'s notes: glossary entries settled, initialization refreshed', async () => {
+    const first = await engineProject({ book: { chapters: 2 } });
+    await timingFor();
+    first.engine.start();
+    await untilRun(first.engine, 'awaiting_review');
+    first.engine.approve();
+    await untilRun(first.engine, 'completed');
+    expect(JSON.parse(file(first.ws, 'notes/master_glossary.json'))).toHaveLength(2);
+
+    const projects = await import('../../src/projects.js');
+    const engineMod = await import('../../src/engine/engine.js');
+    const { makeBook } = await import('../support/epub.js');
+    const sequelEpub = makeBook(path.join(first.dataDir, 'sequel.epub'), { chapters: 1 });
+    first.project.meta.series = 'Saga';
+    first.project.meta.seriesIndex = 1;
+    first.project.save();
+    expect(() => projects.createProject({ name: 'Sequel', targetLanguage: 'French', context: '', epubBuffer: fs.readFileSync(sequelEpub), epubFilename: 's.epub', series: 'Saga' })).toThrow(/language-specific/);
+    const sequel = projects.createProject({ name: 'Sequel', targetLanguage: 'spanish ', context: '', epubBuffer: fs.readFileSync(sequelEpub), epubFilename: 's.epub', series: 'Saga' });
+    expect(sequel.meta).toMatchObject({ series: 'Saga', seriesIndex: 2, inheritFrom: first.project.meta.id });
+    expect(projects.listSeries()).toEqual([{ name: 'Saga', books: [first.project.meta, sequel.meta], latest: first.project.meta }]);
+
+    const before = fake.calls.length;
+    const engine = engineMod.engineFor(sequel);
+    engine.start();
+    await untilRun(engine, 'awaiting_review');
+    expect(sequel.meta.inherited).toMatchObject({ from: first.project.meta.id, fromName: 'Book', glossaryEntries: 2, files: ['notes/master_glossary.json', 'notes/style_guide.md', 'notes/metadata.json', 'notes/critique_charter.md'] });
+    // The glossary grew from the inherited two, not from zero.
+    expect(JSON.parse(file(sequel.workspace, 'notes/master_glossary.json'))).toHaveLength(3);
+    // The initialization agents were told to refresh, and every chapter agent knows the series.
+    const calls = fake.calls.slice(before);
+    const metadata = calls.find((c) => c.mode === 'metadata')!;
+    expect(metadata.prompt).toContain('already exists, produced for "Book"');
+    expect(metadata.prompt).toContain('part 2 of the series "Saga"');
+    expect(calls.find((c) => c.mode === 'translate')!.prompt).toContain('2 terms established in "Book": they are settled');
+    expect(engine.trace.timelineRecords().find((t) => t.kind === 'inherit')).toMatchObject({ glossaryEntries: 2, sourceCompleted: true });
+    expect(engine.trace.runs().find((r) => r.mode === 'glossary')!.inputs.find((i) => i.path === 'notes/master_glossary.json')!.size).toBeGreaterThan(10);
   });
 });
 

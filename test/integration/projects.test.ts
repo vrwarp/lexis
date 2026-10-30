@@ -307,6 +307,71 @@ describe('workspace files', () => {
   });
 });
 
+describe('the trace', () => {
+  it('serves the summary, a run\'s transcript, the prompts and an export', async () => {
+    await ready();
+    const p = await s.createProject();
+    await runToReview(p.id);
+    const summary = await get(`/api/projects/${p.id}/trace/summary`);
+    expect(summary.totals.runs).toBe(fake.calls.length);
+    expect(summary.project.included).toBe(2);
+    expect(summary.byMode.some((m: { mode: string }) => m.mode === 'translate')).toBe(true);
+    const text = await (await s.request(`/api/projects/${p.id}/trace/summary?format=text&section=stages`)).text();
+    expect(text).toContain('primary-translator');
+    const step = await get(`/api/projects/${p.id}/step?id=${encodeURIComponent(`${CH1}/draft`)}`);
+    const runId = step.runs[0].id;
+    expect(step.runs[0].prompt).toContain('Translate `original/OEBPS/chapter1.xhtml`');
+    const transcript = await (await s.request(`/api/projects/${p.id}/trace/runs/${runId}/transcript`)).text();
+    expect(transcript).toContain('# primary-translator · translate · chapter1.xhtml');
+    expect(transcript).toContain('## Task prompt');
+    expect(transcript).toContain('result success');
+    const json = await get(`/api/projects/${p.id}/trace/runs/${runId}/transcript?format=json`);
+    expect(json.records.map((r: { kind: string }) => r.kind)).toContain('tool_use');
+    expect(json.run.outputs[0].path).toBe('draft/OEBPS/chapter1.xhtml');
+    expect((await s.request(`/api/projects/${p.id}/trace/runs/00000000/transcript`)).status).toBe(404);
+    expect((await s.request(`/api/projects/${p.id}/trace/runs/../etc/transcript`)).status).toBe(404);
+    const tgz = await s.request(`/api/projects/${p.id}/trace/export`);
+    expect(tgz.status).toBe(200);
+    expect(tgz.headers.get('content-disposition')).toContain(`lexis-trace-${p.id}.tgz`);
+    const bytes = Buffer.from(await tgz.arrayBuffer());
+    expect(bytes.length).toBeGreaterThan(1000);
+    expect(bytes[0]).toBe(0x1f); // gzip
+  });
+});
+
+describe('series', () => {
+  it('creates a sequel that inherits from the latest book of its series, and lists series', async () => {
+    await ready();
+    expect(await get('/api/series')).toEqual([]);
+    const first = await s.createProject({ name: 'Book One', series: 'Saga' });
+    expect(first).toMatchObject({ series: 'Saga', seriesIndex: 1 });
+    expect(first.inheritFrom).toBeUndefined();
+    await post(`/api/projects/${first.id}/run/start`);
+    await until(async () => (await runState(first.id)) === 'awaiting_review', 15_000);
+    const second = await s.createProject({ name: 'Book Two', series: 'Saga' });
+    expect(second).toMatchObject({ series: 'Saga', seriesIndex: 2, inheritFrom: first.id });
+    const series = await get('/api/series');
+    expect(series).toEqual([{ name: 'Saga', latest: second.id, books: [expect.objectContaining({ id: first.id, seriesIndex: 1 }), expect.objectContaining({ id: second.id, seriesIndex: 2 })] }]);
+    const fresh = await s.createProject({ name: 'Book Three', series: 'Saga', inheritFrom: 'none' });
+    expect(fresh.inheritFrom).toBeUndefined();
+    const form = new FormData();
+    form.append('epub', new Blob(['x']), 'b.epub');
+    form.append('targetLanguage', 'German');
+    form.append('series', 'Saga');
+    const mismatch = await s.request('/api/projects', { method: 'POST', body: form });
+    expect(mismatch.status).toBe(400);
+    expect((await mismatch.json()).error).toMatch(/language-specific/);
+
+    await post(`/api/projects/${second.id}/run/start`);
+    await until(async () => (await runState(second.id)) === 'awaiting_review', 15_000);
+    const detail = await get(`/api/projects/${second.id}`);
+    expect(detail.inherited).toMatchObject({ from: first.id, fromName: 'Book One', glossaryEntries: 2 });
+    const summary = await get(`/api/projects/${second.id}/trace/summary`);
+    expect(summary.inherited.glossaryEntries).toBe(2);
+    expect(summary.project.series).toBe('Saga');
+  });
+});
+
 describe('versions', () => {
   it('snapshots on request and lists the engine\'s milestones', async () => {
     await ready();

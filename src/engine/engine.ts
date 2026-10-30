@@ -4,7 +4,7 @@ import path from 'node:path';
 import { loadAgents } from '../agents.js';
 import { env } from '../env.js';
 import { discoverChapters, extractEpub, readPackage, replaceCover, resolveHref, syncAssets, validateEpubDir, zipEpub } from '../epub.js';
-import type { Project } from '../projects.js';
+import { type Project, getProject } from '../projects.js';
 import {
   CHAPTER_STAGES,
   type AgentRun,
@@ -21,7 +21,8 @@ import {
 import { saveVersion } from '../versioning.js';
 import { STAGE_INFO, ensureSteps, excludedChapter, isBlocked, progress, readySteps, stagesFrom, stepId } from './plan.js';
 import { type Outcome, estimateCostUsd, runAgent } from './runner.js';
-import { MODE_AGENT, type RunMode, type StepContext, checkOutput, chapterPaths, outputsExist, outputsOf, taskPrompt } from './steps.js';
+import { MODE_AGENT, type RunMode, type StepContext, checkOutput, chapterPaths, filesOf, outputsExist, outputsOf, taskPrompt } from './steps.js';
+import { Trace, sha256 } from './trace.js';
 
 /** Waits the engine observes; tests shorten them. */
 export const timing = {
@@ -59,6 +60,8 @@ export interface EngineHooks {
 export class Engine {
   readonly project: Project;
   readonly state: PipelineState;
+  /** The complete record of this project's run (docs/ANALYSIS.md). */
+  readonly trace: Trace;
   private readonly file: string;
   private inFlight = new Map<string, AbortController>();
   private saveTimer: NodeJS.Timeout | null = null;
@@ -73,6 +76,7 @@ export class Engine {
     this.project = project;
     this.file = path.join(project.dir, 'pipeline.json');
     this.hooks = hooks;
+    this.trace = new Trace(project.dir, project.workspace);
     this.state = this.load();
     this.revalidate(false);
   }
@@ -151,6 +155,7 @@ export class Engine {
       }
       if (step.state !== was) changed.push(step);
     }
+    if (changed.length) this.trace.timeline('revalidate', { reset: changed.map((s) => s.id), announced: announce });
     if (announce) {
       for (const step of changed) this.emitStep(step);
       this.emitRun();
@@ -160,6 +165,7 @@ export class Engine {
       this.state.run.state = 'paused';
       this.state.run.reason = 'the server restarted; resuming';
       this.state.run.resumeAt = new Date(Date.now() + timing.bootDelayMs).toISOString();
+      this.trace.timeline('run', { state: 'paused', reason: this.state.run.reason, resumeAt: this.state.run.resumeAt });
     }
     this.saveNow();
   }
@@ -195,18 +201,33 @@ export class Engine {
     } catch {
       // before prepare
     }
-    return { workspace: ws, meta: this.project.meta, chapters: this.state.chapters, opfPath, navPath, ncxPath, maxLoopRounds: this.state.config.maxLoopRounds };
+    const inh = this.project.meta.inherited;
+    return {
+      workspace: ws,
+      meta: this.project.meta,
+      chapters: this.state.chapters,
+      opfPath,
+      navPath,
+      ncxPath,
+      maxLoopRounds: this.state.config.maxLoopRounds,
+      inherited: inh ? { fromName: inh.fromName, files: inh.files, glossaryEntries: inh.glossaryEntries } : undefined,
+    };
   }
 
-  /** The state for the API: everything but the stored prompts (fetched per step). */
+  /** The state for the API. */
   snapshot() {
-    const steps: Record<string, Omit<Step, 'runs'> & { runs: Omit<AgentRun, 'prompt'>[] }> = {};
-    for (const [id, s] of Object.entries(this.state.steps)) steps[id] = stripStep(s);
-    return { run: this.state.run, config: this.state.config, chapters: this.state.chapters, steps, progress: progress(this.state), revisions: this.state.revisions, usage: this.combinedUsage() };
+    return { run: this.state.run, config: this.state.config, chapters: this.state.chapters, steps: this.state.steps, progress: progress(this.state), revisions: this.state.revisions, usage: this.combinedUsage() };
   }
 
   step(id: string): Step | undefined {
     return this.state.steps[id];
+  }
+
+  /** A step with each run's task prompt, read from the trace. */
+  stepWithPrompts(id: string): (Omit<Step, 'runs'> & { runs: (AgentRun & { prompt: string | null })[] }) | undefined {
+    const step = this.state.steps[id];
+    if (!step) return undefined;
+    return { ...step, runs: step.runs.map((r) => ({ ...r, prompt: this.trace.prompt(r.id) })) };
   }
 
   /** The gate summary: assembled from the state, not narrated by a model. */
@@ -253,6 +274,8 @@ export class Engine {
     run.resumeAt = undefined;
     run.startedAt ??= now();
     run.endedAt = undefined;
+    this.trace.ensure(this.project.meta, this.state.config);
+    this.trace.timeline('run', { state: 'running' });
     this.project.setStatus('running');
     this.emitRun();
     this.save();
@@ -269,6 +292,7 @@ export class Engine {
     this.state.run.state = 'paused';
     this.state.run.reason = reason;
     this.state.run.resumeAt = resumeAt ? new Date(resumeAt).toISOString() : undefined;
+    this.trace.timeline('run', { state: 'paused', reason, resumeAt: this.state.run.resumeAt });
     if (this.resumeTimer) clearTimeout(this.resumeTimer);
     this.resumeTimer = null;
     if (resumeAt) {
@@ -289,6 +313,7 @@ export class Engine {
 
   setConcurrency(n: number): void {
     this.state.config.concurrency = Math.max(1, Math.min(8, Math.round(n)));
+    this.trace.timeline('config', { concurrency: this.state.config.concurrency });
     this.emitPlan();
     this.save();
     void this.tick();
@@ -297,6 +322,7 @@ export class Engine {
   setInstructions(text: string): void {
     this.project.meta.context = text;
     this.project.save();
+    this.trace.timeline('instructions', { chars: text.length, hash: sha256(text).slice(0, 12) });
     this.project.emit('status', 'user', { status: this.project.meta.status, detail: 'Instructions updated; steps that start from now on see them.' });
   }
 
@@ -309,6 +335,7 @@ export class Engine {
     }
     if (patch.note !== undefined) c.note = patch.note.trim() || undefined;
     if (patch.title !== undefined && patch.title.trim()) c.title = patch.title.trim().slice(0, 120);
+    this.trace.timeline('plan', { chapter: key, excluded: c.excluded, note: c.note, title: c.title });
     this.writeContents();
     if (patch.excluded === false && (this.state.run.state === 'awaiting_review' || this.state.run.state === 'completed')) {
       // A chapter joined after the gate: its stages are new work, and the book must be packaged again.
@@ -327,6 +354,7 @@ export class Engine {
     if (!step) throw new Error(`unknown step ${id}`);
     if (step.state === 'running') throw new Error('that step is running');
     const chapter = step.chapter ? this.chapter(step.chapter) : undefined;
+    this.trace.timeline('retry', { step: id });
     if (chapter && step.chapter) this.resetChapterFrom(chapter, step.stage as ChapterStage);
     else this.resetStep(step);
     if (step.stage === 'package') this.state.run.approved = true;
@@ -340,6 +368,7 @@ export class Engine {
     const todo = keys.map((k) => this.chapter(k)).filter((c): c is Chapter => Boolean(c) && !c!.excluded);
     if (!todo.length) return [];
     await this.checkpoint(label ?? `before re-running ${todo.map((c) => c.title).join(', ')} from ${STAGE_INFO[from].label.toLowerCase()}`);
+    this.trace.timeline('rerun', { chapters: todo.map((c) => c.key), from, note });
     const done: string[] = [];
     for (const c of todo) {
       if (note?.trim()) c.note = c.note ? `${c.note}\n${note.trim()}` : note.trim();
@@ -360,6 +389,7 @@ export class Engine {
   approve(): boolean {
     if (this.state.run.state !== 'awaiting_review') return false;
     this.state.run.approved = true;
+    this.trace.timeline('review', { decision: 'approve' });
     this.project.emit('review_response', 'user', { decision: 'approve' });
     this.start();
     return true;
@@ -372,6 +402,7 @@ export class Engine {
     const keys = opts.chapters?.length ? opts.chapters : this.state.chapters.filter((c) => !c.excluded).map((c) => c.key);
     const n = this.state.revisions.length + 1;
     this.state.revisions.push({ at: now(), chapters: keys, from, instructions: opts.instructions });
+    this.trace.timeline('review', { decision: 'revise', chapters: keys, from, instructions: opts.instructions });
     this.project.emit('review_response', 'user', { decision: 'revise', instructions: opts.instructions, chapters: keys, from });
     await this.rerunChapters(keys, from, `Revision ${n}: ${opts.instructions}`, `before revision ${n}`);
     return true;
@@ -387,6 +418,7 @@ export class Engine {
     if (this.state.run.state === 'completed' || this.state.run.state === 'awaiting_review') {
       this.state.run.state = 'paused';
       this.state.run.reason = 'more work queued';
+      this.trace.timeline('run', { state: 'paused', reason: this.state.run.reason });
     }
   }
 
@@ -481,6 +513,7 @@ export class Engine {
         step.endedAt = now();
         step.durationMs = Date.parse(step.endedAt) - Date.parse(step.startedAt ?? step.endedAt);
         if (step.state === 'done') (this.state.timings[step.stage] ??= []).push(step.durationMs);
+        this.trace.timeline('step', { step: step.id, stage: step.stage, chapter: step.chapter, state: step.state, rounds: step.rounds, durationMs: step.durationMs, warning: step.warning, error: step.error });
         this.emitStep(step);
         this.emitRun();
         this.save();
@@ -518,6 +551,7 @@ export class Engine {
     if (pkg?.state === 'done') {
       this.state.run.state = 'completed';
       this.state.run.endedAt = now();
+      this.trace.timeline('run', { state: 'completed' });
       this.project.setStatus('completed');
       this.emitRun();
       this.save();
@@ -532,6 +566,7 @@ export class Engine {
     const allVerified = included.every((c) => this.state.steps[stepId('verify', c.key)]?.state === 'done');
     if (allVerified && !this.state.run.approved) {
       this.state.run.state = 'awaiting_review';
+      this.trace.timeline('run', { state: 'awaiting_review' });
       const { summary, warnings } = this.reviewSummary();
       this.project.setStatus('awaiting_review');
       this.project.emit('review_request', 'engine', { summary, warnings });
@@ -628,12 +663,55 @@ export class Engine {
     });
     ensureSteps(this.state);
     for (const d of ['notes', 'draft', 'critique', 'final']) fs.mkdirSync(path.join(ws, d), { recursive: true });
+    this.inherit();
     const glossary = path.join(ws, 'notes', 'master_glossary.json');
     if (!fs.existsSync(glossary)) fs.writeFileSync(glossary, '[]\n');
     this.writeContents();
     this.emitPlan();
     const included = this.state.chapters.filter((c) => !c.excluded).length;
     this.project.emit('agent_text', 'engine', { text: `Extracted the EPUB: ${this.state.chapters.length} documents in the spine, ${included} to translate.` }, { step: 'prepare' });
+  }
+
+  /** The files a series carries from book to book (LESSONS.md §2: consistency as data). */
+  static readonly INHERITED_FILES = ['notes/master_glossary.json', 'notes/style_guide.md', 'notes/metadata.json', 'notes/critique_charter.md'];
+
+  /**
+   * Start this book from the previous book's notes: its glossary (entries
+   * settled), style guide, metadata and charter. The initialization agents
+   * then refresh those documents instead of writing them from nothing.
+   */
+  private inherit(): void {
+    const meta = this.project.meta;
+    if (!meta.inheritFrom || meta.inherited) return;
+    const source = getProject(meta.inheritFrom);
+    if (!source) throw new StepFailed(`the book to inherit from (${meta.inheritFrom}) no longer exists`);
+    const files: string[] = [];
+    let glossaryEntries = 0;
+    for (const rel of Engine.INHERITED_FILES) {
+      const from = path.join(source.workspace, rel);
+      if (!fs.existsSync(from)) continue;
+      fs.mkdirSync(path.dirname(path.join(this.project.workspace, rel)), { recursive: true });
+      fs.copyFileSync(from, path.join(this.project.workspace, rel));
+      files.push(rel);
+      if (rel.endsWith('master_glossary.json')) {
+        try {
+          glossaryEntries = (JSON.parse(fs.readFileSync(from, 'utf8')) as unknown[]).length;
+        } catch {
+          glossaryEntries = 0;
+        }
+      }
+    }
+    meta.inherited = { from: source.meta.id, fromName: source.meta.name, at: now(), files, glossaryEntries };
+    this.project.save();
+    const sourceEngine = engines.get(source.meta.id);
+    const sourceDone = sourceEngine ? sourceEngine.runState === 'completed' : source.meta.status === 'completed';
+    this.trace.timeline('inherit', { from: source.meta.id, fromName: source.meta.name, files, glossaryEntries, sourceCompleted: sourceDone });
+    this.project.emit(
+      'agent_text',
+      'engine',
+      { text: `Continues "${source.meta.name}": inherited ${files.length ? files.map((f) => f.replace('notes/', '')).join(', ') : 'nothing (it has no notes yet)'}${glossaryEntries ? ` with ${glossaryEntries} glossary entries` : ''}.${sourceDone ? '' : ' That book is not finished, so its glossary may still grow; re-run this one\'s initialization later if needed.'}` },
+      { step: 'prepare' },
+    );
   }
 
   private async package(step: Step, signal: AbortSignal): Promise<void> {
@@ -673,6 +751,8 @@ export class Engine {
     const agentTier = ['metadata-generator', 'style-analyzer', 'critique-charter-generator', 'primary-translator', 'final-translator', 'native-critique'].includes(agentName) ? 'translation' : 'mechanical';
     let hint: string | undefined;
     let transient = 0;
+    const agentPromptHash = this.trace.agentPrompt(agentName, agent.prompt);
+    const files = filesOf(ctx, mode, chapter);
     for (let attempt = 1; attempt <= this.state.config.maxAttempts; ) {
       if (signal.aborted) throw new Stopped();
       const prompt = taskPrompt(ctx, mode, chapter, { round: opts.round, hint });
@@ -684,12 +764,13 @@ export class Engine {
         attempt,
         state: 'running',
         startedAt: now(),
-        prompt,
+        promptHash: sha256(prompt).slice(0, 16),
       };
       step.runs.push(run);
       step.attempts = attempt;
       this.emitStep(step);
       this.save();
+      const tracer = this.trace.beginRun(run, prompt, files.inputs, files.outputs);
       const outcome = await runAgent({
         workspace: ctx.workspace,
         agent,
@@ -703,6 +784,7 @@ export class Engine {
         signal,
         onEvent: (type, data) => this.project.emit(type, agentName, data, { step: step.id, run: run.id, chapter: step.chapter }),
         onUsage: (model, delta) => this.trackLive(run.id, model, delta),
+        onRecord: (r) => tracer.record(r),
       });
       this.live.delete(run.id);
       this.recordUsage(outcome);
@@ -712,9 +794,45 @@ export class Engine {
       run.tokens = outcome.tokens;
       run.model = outcome.model;
       step.costUsd += outcome.costUsd;
+      const check = outcome.kind === 'ok' ? checkOutput(ctx, mode, chapter, opts.before ?? {}) : null;
+      if (check) tracer.record({ kind: 'check', check });
+      try {
+        tracer.finish({
+          step: step.id,
+          stage: step.stage,
+          chapter: step.chapter,
+          chapterTitle: chapter?.title,
+          chapterWords: chapter?.words,
+          agent: agentName,
+          agentPrompt: agentPromptHash,
+          mode,
+          round: run.round,
+          attempt,
+          model: this.state.config.models[agentTier],
+          effort: this.state.config.effort[agentTier],
+          config: { maxTurns: this.state.config.maxTurns, budgetUsd: this.state.config.stepBudgetUsd, timeoutMs: this.state.config.stepTimeoutMs[tier], concurrency: this.state.config.concurrency },
+          startedAt: run.startedAt,
+          endedAt: run.endedAt,
+          durationMs: outcome.durationMs,
+          turns: outcome.turns,
+          outcome: outcome.kind,
+          error: outcome.error,
+          resetsAt: outcome.resetsAt,
+          check,
+          usage: {
+            byModel: outcome.usage,
+            input: Object.values(outcome.usage).reduce((a, u) => a + u.inputTokens, 0),
+            output: Object.values(outcome.usage).reduce((a, u) => a + u.outputTokens, 0),
+            cacheRead: Object.values(outcome.usage).reduce((a, u) => a + u.cacheReadInputTokens, 0),
+            cacheWrite: Object.values(outcome.usage).reduce((a, u) => a + u.cacheCreationInputTokens, 0),
+            costUsd: outcome.costUsd,
+          },
+        });
+      } catch (e) {
+        console.error('[lexis] trace record failed', e);
+      }
 
-      if (outcome.kind === 'ok') {
-        const check = checkOutput(ctx, mode, chapter, opts.before ?? {});
+      if (outcome.kind === 'ok' && check) {
         if (check.ok) {
           run.state = 'done';
           if (check.warning) step.warning = check.warning;
@@ -825,13 +943,16 @@ export class Engine {
 
   /** Snapshots are serialized: parallel steps finishing together must not race git. */
   checkpoint(label: string, auto = false): Promise<void> {
-    const next = this.versions.then(() => saveVersion(this.project, label, auto)).catch((e) => console.error('[lexis] version failed', e, (e as { stderr?: string }).stderr));
+    const next = this.versions
+      .then(() => saveVersion(this.project, label, auto))
+      .then((v) => this.trace.timeline('checkpoint', { label, version: v?.id ?? null }))
+      .catch((e) => console.error('[lexis] version failed', e, (e as { stderr?: string }).stderr));
     this.versions = next;
     return next.then(() => undefined);
   }
 
   private emitStep(step: Step): void {
-    this.project.emit('step', 'engine', { step: stripStep(step) as unknown as Record<string, unknown> }, { step: step.id, chapter: step.chapter });
+    this.project.emit('step', 'engine', { step: step as unknown as Record<string, unknown> }, { step: step.id, chapter: step.chapter });
   }
 
   private emitRun(): void {
@@ -882,10 +1003,6 @@ function defaultConfig(): RunConfig {
     models: { translation: env.models.translation, mechanical: env.models.mechanical },
     effort: { translation: env.effort.translation, mechanical: env.effort.mechanical },
   };
-}
-
-function stripStep(s: Step) {
-  return { ...s, runs: s.runs.map(({ prompt: _prompt, ...r }) => r) };
 }
 
 function describe(step: Step, state: PipelineState): string {
