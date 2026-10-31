@@ -14,26 +14,175 @@ signs in with your **Claude subscription** from the browser — no API key neede
 
 ## Deploy (Docker)
 
+lexis is one container: the Node server, the web UI, the Claude Code runtime
+the Agent SDK ships, and the command-line tools the pipeline uses (`git`,
+`zip`, `unzip`). Everything it keeps — projects, the books, the traces, your
+Claude login and your passkeys — lives in one volume mounted at `/data`.
+
+### What you need
+
+- A host with Docker Engine and the Compose plugin (`docker compose`). The
+  published image is `linux/amd64`; on an arm64 host build from source
+  (the Dockerfile is multi-arch).
+- An **https** hostname in front of it (a reverse proxy such as Caddy, nginx,
+  Traefik, or the one your NAS provides). Passkeys only work in a secure
+  context, and the session cookie is marked `Secure`. Plain http is fine only
+  on `localhost`.
+- A **Claude subscription with Opus access** (Max), or an API key. The
+  translation tier runs Opus by default.
+- Memory: every agent run in flight is one Claude Code process (a few hundred
+  MB). The compose file caps the container at 4 GB, which is comfortable for
+  the default concurrency of 3; on a smaller host set `LEXIS_CONCURRENCY=1`
+  or `2`. Disk: a translated book with its versions and trace is tens of
+  megabytes.
+
+### Build from source
+
 ```sh
-cp .env.example .env        # set LEXIS_PASSWORD and LEXIS_PUBLIC_URL
+git clone https://github.com/vrwarp/lexis.git && cd lexis
+cp .env.example .env         # then edit it: at least LEXIS_PASSWORD and LEXIS_PUBLIC_URL
 docker compose up -d --build
+docker compose logs -f lexis # until "lexis listening"
 ```
 
-Put it behind your https reverse proxy, open `LEXIS_PUBLIC_URL`, sign in with
-the password and create a passkey when asked (see [Security](#security)). Then
-click **Claude** at the bottom of the sidebar → **Sign in with Claude**. Open the link, approve with
-the account that has your subscription, paste the code back. The login is kept
-in the `/data` volume along with every project, so it survives restarts and
-upgrades.
+### Or run the published image
 
-Alternatives to the web sign-in, in the order Claude Code prefers them:
-`ANTHROPIC_API_KEY` (billed per token), then `CLAUDE_CODE_OAUTH_TOKEN` (from
-`claude setup-token`), then the web sign-in. Long runs on a subscription may
-pause on its rate limits; the translation tier uses Opus, so the plan needs
-Opus access.
+Merges to `main` that pass CI are pushed to Docker Hub as `<dockerhub-user>/lexis:latest`
+and `:sha-<commit>` (see [CI](#ci) for the repository settings that enable
+it). To run that instead of building, replace `build: .` in
+`docker-compose.yml` with `image: <dockerhub-user>/lexis:latest` (or put the
+two lines below in a `docker-compose.override.yml`, Compose ≥ 2.24), then
+`docker compose pull && docker compose up -d`:
 
-Merges to `main` that pass CI are pushed to Docker Hub (see [CI](#ci)), so a
-host can also run the published image instead of building.
+```yaml
+services:
+  lexis:
+    build: !reset null
+    image: <dockerhub-user>/lexis:latest
+```
+
+### Configure: `.env`
+
+Copy `.env.example`; it documents every setting. The ones that matter:
+
+| Setting | Required | What it does |
+|---|---|---|
+| `LEXIS_PASSWORD` | yes | The password. It signs you in the first time (to set up a passkey) and always works as the backup, so make it long and random (`openssl rand -base64 24`). |
+| `LEXIS_PUBLIC_URL` | yes | The address you open lexis at, e.g. `https://lexis.example.com`. Passkeys are bound to this host and requests from any other origin are refused. |
+| `COOKIE_SECURE` | yes (`1` over https) | Secure `__Host-` session cookie and HSTS. Set `0` only for plain-http `localhost` use. |
+| `LEXIS_TRUST_PROXY` | behind a proxy | How many reverse proxies sit in front (usually `1`). Lets the password attempt limits see real client addresses. |
+| `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` | no | A credential instead of the web sign-in: a long-lived subscription token from `claude setup-token`, or an API key billed per token. Either outranks the web sign-in. Leave both empty to sign in from the browser. |
+| `LEXIS_TRANSLATION_MODEL`, `LEXIS_MECHANICAL_MODEL`, `LEXIS_ASSISTANT_MODEL` | no | Full model ids per tier (defaults `claude-opus-5-5`, `claude-sonnet-5-5`, mechanical). See [Models](#models). |
+| `LEXIS_TRANSLATION_EFFORT`, `LEXIS_MECHANICAL_EFFORT`, `LEXIS_ASSISTANT_EFFORT` | no | `low` … `max` per tier (defaults `high`, `medium`, `medium`). |
+| `LEXIS_CONCURRENCY` | no | Agent runs in flight at once, 1–8 (default 3). Changeable per run in the UI. |
+| `LEXIS_LOOP_ROUNDS` | no | Draft/omission and stray/fix rounds per chapter before moving on with a warning (default 3). |
+| `LEXIS_STEP_ATTEMPTS` | no | Tries per agent run when the harness rejects its output (default 2). |
+| `LEXIS_STEP_TIMEOUT_MIN`, `LEXIS_MECHANICAL_TIMEOUT_MIN` | no | Wall-clock caps per agent run (defaults 60 and 30 minutes). |
+| `LEXIS_STEP_BUDGET_USD`, `LEXIS_STEP_MAX_TURNS` | no | Safety nets per agent run against a looping agent (defaults $25, 80 turns). |
+| `LEXIS_DEBUG` | no | `1` echoes the Claude Code subprocesses' stderr to the container log. |
+| `PORT`, `LEXIS_DATA_DIR`, `CLAUDE_CONFIG_DIR` | no | Set by the image (`8080`, `/data`, `/data/claude`); change only for a non-Docker install. |
+
+Settings are read at start: `docker compose up -d` after a change. Model,
+effort and loop settings are fixed for a run once it starts (and recorded in
+it); concurrency can be changed live.
+
+### The reverse proxy
+
+Forward to the container's port 8080 with WebSocket upgrades (the live feed
+is a WebSocket at `/ws`), pass the client address, and allow uploads of the
+size of your EPUBs (lexis caps them at 200 MB). Caddy does all of this with
+one line:
+
+```
+lexis.example.com {
+    reverse_proxy lexis:8080
+}
+```
+
+nginx needs the usual:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 1h;
+    client_max_body_size 200m;
+}
+```
+
+With one proxy in front set `LEXIS_TRUST_PROXY=1`. If you bind the published
+port to localhost only (`"127.0.0.1:8080:8080"` in the compose file) nothing
+but the proxy can reach the container.
+
+### First run
+
+1. Open `LEXIS_PUBLIC_URL` and sign in with the password. lexis asks you to
+   create a **passkey** (Face ID, Touch ID, Windows Hello, a phone or a
+   security key); do it — from then on sign-in is one tap and the password is
+   the backup. See [Security](#security).
+2. Click **Claude** at the bottom of the sidebar → **Sign in with Claude**.
+   Open the link, approve with the account that has your subscription, paste
+   the code back. The login is kept in the volume, so it survives restarts and
+   upgrades. (`docker compose exec lexis claude auth login` from a shell does
+   the same.)
+3. **New translation**: an EPUB, a target language, optional instructions,
+   optionally a series. Press **Start** and watch the matrix.
+
+### The data volume
+
+`lexis-data` (a named volume) holds:
+
+| Path in `/data` | What |
+|---|---|
+| `projects/<id>/project.json` | the project record |
+| `projects/<id>/workspace/` | the book: `source.epub`, `original/`, `notes/`, `draft/`, `critique/`, `final/`, `translated_book.epub`; a git repository whose commits are the version history |
+| `projects/<id>/pipeline.json`, `events.jsonl` | the run's state and the UI event log |
+| `projects/<id>/trace/` | the full record of every agent run (see [Diagnostics](#diagnostics-and-analysis)) |
+| `claude/` | the Claude login and the Agent SDK's own files |
+| `auth/auth.json` | passkeys and signed-in sessions (`0600`) |
+
+**Back it up** like you would the books themselves: it also holds the
+Claude login. `docker run --rm -v lexis_lexis-data:/data -v "$PWD":/out
+alpine tar czf /out/lexis-data.tgz -C /data .` makes an archive (the volume's
+name is prefixed with the compose project's, usually the folder name). To use a
+host folder instead of the named volume, mount it in place of `lexis-data`
+and `chown -R 1001:1001` it: the container runs as the unprivileged user
+`lexis` (uid 1001), and must — Claude Code refuses to run agents with
+permissions bypassed as root.
+
+### Operating it
+
+- **Logs**: `docker compose logs -f lexis`. Each start logs the models and the
+  credential source. `LEXIS_DEBUG=1` adds the agents' stderr.
+- **Health**: `GET /healthz` answers `{"ok":true}` without a sign-in; the image
+  declares it as its Docker health check.
+- **Upgrade**: `git pull && docker compose up -d --build` (or `docker compose
+  pull && docker compose up -d` for the published image). Data and logins
+  persist. A run that was in progress pauses at the restart and resumes by
+  itself; steps that were mid-flight run again from scratch.
+- **From a shell in the container**: `docker compose exec lexis node dist/cli.js
+  status | signout-all | reset-passkeys | trace <project> … | series`, and
+  `docker compose exec lexis claude auth status`.
+- **Rate limits**: on a subscription the engine pauses when Claude says so
+  and resumes at the reset time it reports (the run line says when). Lower
+  the concurrency if that happens often.
+
+### If something is off
+
+| Symptom | Cause and fix |
+|---|---|
+| No "Sign in with a passkey" button, or creating one fails | Not a secure context: the page must be served over https at `LEXIS_PUBLIC_URL` (or `localhost`). Check `COOKIE_SECURE=1` and that the proxy sets `Host`. |
+| "Too many attempts" on the password | 5 wrong tries per address or 20 overall in 15 minutes. Wait, or sign in with a passkey. Behind a proxy without `LEXIS_TRUST_PROXY`, every client shares one address. |
+| "Claude is not linked yet" when starting | Sign in under **Claude** (sidebar), or set a credential in `.env` and restart. |
+| The run is paused with "usage limit" | The subscription's limit; it resumes at the reset time. Nothing to do. |
+| A step is red | Open its cell: the reason and the agent's log are there; **retry** runs it again. `node dist/cli.js trace <project> failures` groups recurring causes. |
+| The container keeps restarting | `docker compose logs lexis`. The usual cause is a missing `.env` or a volume the `lexis` user cannot write (`chown -R 1001:1001`). |
+| The browser says the session ended | Sessions end after 14 idle days or 30 in all, or when signed out from **Security** on another device. Sign in again. |
 
 ## Security
 
@@ -97,12 +246,17 @@ Options worth knowing about:
   audits, but the omission and stray-phrase audits need judgment; try it on a
   short book first.
 
-## Develop
+## Develop (or run without Docker)
 
 ```sh
 npm install
-LEXIS_PASSWORD=dev npm run dev        # http://localhost:4700
+LEXIS_PASSWORD=dev npm run dev        # http://localhost:4700, plain http is fine on localhost
 ```
+
+For a non-Docker install, `npm run build` then `node dist/server.js` with the
+same `.env` settings in the environment; `zip`, `unzip` and `git` must be on
+`PATH`, and the process must not run as root. `LEXIS_DATA_DIR` sets where
+everything is kept (default `data/`).
 
 ### Tests
 
@@ -138,10 +292,6 @@ you already have.
 Set the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets (and optionally the
 `DOCKERHUB_REPO` variable, default `<username>/lexis`).
 
-`zip`/`unzip` and `git` must be on `PATH` (extraction, packaging and
-versioning use them). `LEXIS_DATA_DIR` overrides where projects and the Claude
-login live (default `data/`); `LEXIS_DEBUG=1` echoes the Claude Code
-subprocess's stderr.
 
 ## Pipeline
 
