@@ -9,6 +9,8 @@ than what the simple pipeline produced. The reverted work is still in git histor
 `docs/BENCHMARK_CH7_FLASHPROXY.md`, `docs/LOOP_LEDGER.md` on those branches).
 
 Any future rework of this pipeline should internalize the following before repeating them.
+(The later move of the sequencing from an orchestrator agent into code — see
+`HARNESS_DESIGN.md` — left the pipeline itself as described here.)
 
 ## 1. Do not put a cheap model on the actual translation task
 
@@ -19,7 +21,8 @@ scene-scoped repair. The scaffolding grew enormous and the prose still came out 
 The last known good state — and the current design — pins the strong model on
 `primary-translator`, `final-translator`, `native-critique`, and `metadata-generator`,
 and uses the cheap tier only for mechanical/extraction work. In the Claude Agent SDK
-harness that means **Opus for the translation-quality tier, Sonnet for everything else**.
+harness that means **Opus for the translation-quality tier, Sonnet for everything else**
+(`LEXIS_TRANSLATION_MODEL` / `LEXIS_MECHANICAL_MODEL`, see `.env.example`).
 
 ## 2. Consistency must be carried as data, not exhortation
 

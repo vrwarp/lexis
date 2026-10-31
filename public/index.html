@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>lexis — EPUB translation studio</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- ============ sign-in ============ -->
+  <div id="login-screen" class="hidden">
+    <div class="empty-card login-card">
+      <span class="brand-mark big">λ</span>
+      <h2>lexis</h2>
+      <p class="muted" id="login-note">Sign in to open the studio.</p>
+      <button type="button" id="passkey-signin" class="primary wide hidden">🔑 Sign in with a passkey</button>
+      <p id="login-or" class="muted small hidden">or use the password</p>
+      <form id="login-form" class="login-form hidden">
+        <input type="password" id="login-password" autocomplete="current-password" placeholder="Password" required />
+        <button type="submit" class="wide" id="password-signin">Sign in with password</button>
+      </form>
+      <p id="login-error" class="error-text hidden" role="alert"></p>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
+    <!-- ============ sidebar ============ -->
+    <aside id="sidebar">
+      <div class="brand">
+        <span class="brand-mark">λ</span>
+        <div>
+          <h1>lexis</h1>
+          <p>EPUB translation studio</p>
+        </div>
+      </div>
+
+      <button id="new-project-btn" class="primary wide">＋ New translation</button>
+
+      <nav id="project-list" aria-label="Projects"></nav>
+
+      <form id="new-project-form" class="hidden">
+        <h2>New translation</h2>
+        <label>EPUB file
+          <input type="file" name="epub" accept=".epub" required />
+        </label>
+        <label>Project name <span class="muted">(optional)</span>
+          <input type="text" name="name" placeholder="Defaults to the filename" />
+        </label>
+        <label>Target language
+          <input type="text" name="targetLanguage" placeholder="e.g. Traditional Chinese (Taiwan)" required />
+        </label>
+        <label>Context &amp; instructions <span class="muted">(optional)</span>
+          <textarea name="context" rows="4" placeholder="Audience, register, names to keep, anything the translators should know…"></textarea>
+        </label>
+        <label>Series <span class="muted">(optional)</span>
+          <input type="text" name="series" list="series-names" placeholder="Books that share names, voice and glossary" autocomplete="off" />
+          <datalist id="series-names"></datalist>
+        </label>
+        <label id="inherit-row" class="hidden">Continue from
+          <select name="inheritFrom" id="inherit-from"><option value="none">nothing — start fresh</option></select>
+          <span class="muted small">Its glossary, style guide, metadata and critique charter seed this book.</span>
+        </label>
+        <div class="row">
+          <button type="submit" class="primary">Create project</button>
+          <button type="button" id="cancel-new-project" class="ghost">Cancel</button>
+        </div>
+      </form>
+
+      <div id="claude-status" class="claude-status">
+        <button id="claude-open" class="ghost wide claude-open" title="Claude subscription link">
+          <span id="claude-dot" class="dot"></span>
+          <span id="claude-label">Claude…</span>
+        </button>
+        <div class="row">
+          <button id="security-open" class="ghost small grow" title="Passkeys and signed-in browsers">
+            <span id="security-dot" class="dot"></span> Security
+          </button>
+          <button id="logout-btn" class="ghost small" title="Sign out of lexis">Sign out</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ============ main ============ -->
+    <main id="main">
+      <section id="empty-state">
+        <div class="empty-card">
+          <span class="brand-mark big">λ</span>
+          <h2>Translate a book</h2>
+          <p>Upload an EPUB and a target language. The engine extracts the book, builds a
+            glossary, then drafts, audits, critiques, polishes and verifies every chapter with
+            specialized agents — several chapters at a time — and checks in with you before
+            packaging the translated EPUB.</p>
+          <p class="muted" id="tier-note">The strong model does the translating. The cheaper one does everything else.</p>
+        </div>
+      </section>
+
+      <section id="project-view" class="hidden">
+        <header id="project-header">
+          <div class="title-block">
+            <h2 id="project-title"></h2>
+            <div class="subtitle">
+              <span id="project-lang" class="chip lang"></span>
+              <span id="project-status" class="chip status"></span>
+            </div>
+          </div>
+          <div id="project-actions" class="actions">
+            <button id="start-btn" class="primary hidden">▶ Start translation</button>
+            <button id="pause-btn" class="ghost hidden" title="Finish the steps in flight, start nothing new">⏸ Pause</button>
+            <button id="resume-btn" class="primary hidden">▶ Resume</button>
+            <button id="stop-btn" class="ghost danger hidden" title="Abort the steps in flight; they run again on resume">■ Stop</button>
+            <label class="ghost button-like concurrency" title="Agent runs in flight at once">
+              ‖ <select id="concurrency"></select>
+            </label>
+            <button id="instructions-btn" class="ghost" title="Project-wide instructions; steps that start afterwards see them">✎ Instructions</button>
+            <button id="download-btn" class="primary hidden">⤓ Download EPUB</button>
+            <a id="diagnostics-btn" class="ghost button-like" href="#" title="A .tgz of this project's trace: every agent run's prompt, transcript, inputs and outputs, and the engine's timeline (docs/ANALYSIS.md)">⬇ Diagnostics</a>
+            <label id="cover-btn" class="ghost button-like" title="Optional custom cover for the translated EPUB">
+              🖼 Cover<input type="file" id="cover-input" accept=".jpg,.jpeg,.png,.gif,.webp,.svg" hidden />
+            </label>
+            <button id="repackage-btn" class="ghost hidden" title="Rebuild the finished EPUB with the uploaded cover — no agents involved">↻ Repackage</button>
+          </div>
+        </header>
+
+        <!-- the run: state, progress, the chapter × stage matrix -->
+        <div id="run-panel">
+          <div id="run-summary">
+            <span id="run-state" class="run-state"></span>
+            <span id="run-reason" class="muted"></span>
+            <span class="grow"></span>
+            <span id="run-progress" class="run-progress"></span>
+          </div>
+          <div id="run-bar"><span id="run-bar-done"></span><span id="run-bar-running"></span><span id="run-bar-failed"></span></div>
+          <p id="run-notice" class="run-notice hidden" role="alert"></p>
+          <p id="run-series" class="run-series muted small hidden"></p>
+          <div id="global-steps" aria-label="Book-wide steps"></div>
+          <div id="matrix-wrap"><table id="matrix" aria-label="Chapters and stages"><thead></thead><tbody></tbody></table></div>
+        </div>
+
+        <!-- review gate banner -->
+        <div id="review-banner" class="hidden">
+          <div class="review-head">
+            <span class="pulse"></span>
+            <strong>Every chapter is finalized and verified. Review before packaging.</strong>
+          </div>
+          <div class="review-body"><pre id="review-summary"></pre><ul id="review-warnings" class="review-warnings"></ul></div>
+          <div class="review-pass">
+            <textarea id="review-instructions" rows="3"
+              placeholder="Instructions for another pass (tone tweaks, name fixes, what to redo…)"></textarea>
+            <div class="row wrap">
+              <label class="small">Chapters
+                <select id="review-scope">
+                  <option value="all">every chapter</option>
+                  <option value="some">chosen chapters…</option>
+                </select>
+              </label>
+              <label class="small">Pass
+                <select id="review-from">
+                  <option value="critique">fresh critique + polish</option>
+                  <option value="final">polish only</option>
+                  <option value="draft">retranslate from scratch</option>
+                </select>
+              </label>
+            </div>
+            <div id="review-chapters" class="chapter-picks hidden"></div>
+          </div>
+          <div class="row">
+            <button id="review-approve" class="primary">✓ Approve &amp; package</button>
+            <button id="review-revise" class="ghost">↺ Run another pass</button>
+          </div>
+        </div>
+
+        <div id="workbench">
+          <!-- activity feed + chat -->
+          <div id="feed-pane">
+            <div class="pane-head">
+              <h3>Activity</h3>
+              <select id="feed-filter" class="small-select" title="Show only one chapter's activity"><option value="">everything</option></select>
+              <label class="toggle"><input type="checkbox" id="show-detail" /> tool detail</label>
+            </div>
+            <div id="feed" role="log"></div>
+            <form id="chat-form">
+              <input id="chat-input" type="text" autocomplete="off"
+                placeholder="Ask the assistant — about the book, the glossary, a chapter — or ask for changes…" />
+              <button type="submit" class="primary">Send</button>
+            </form>
+          </div>
+
+          <!-- versions / files -->
+          <div id="version-pane">
+            <div class="tab-bar" role="tablist">
+              <button class="tab active" data-tab="versions">Versions</button>
+              <button class="tab" data-tab="files">Files</button>
+            </div>
+            <div id="tab-versions" class="tab-body">
+              <div class="pane-head">
+                <h3>Versions</h3>
+                <button id="snapshot-btn" class="ghost small" title="Snapshot the workspace now">＋ snapshot</button>
+              </div>
+              <ol id="version-list"></ol>
+            </div>
+            <div id="tab-files" class="tab-body hidden">
+              <div class="pane-head">
+                <h3>Generated assets</h3>
+                <button id="files-refresh" class="ghost small" title="Reload the file list">↻ refresh</button>
+              </div>
+              <div id="file-tree"><p class="muted usage-empty">No files yet.</p></div>
+            </div>
+            <div class="pane-head usage-head">
+              <h3>Usage</h3>
+              <span id="usage-total" class="usage-total"></span>
+            </div>
+            <div id="usage-panel"><p class="muted usage-empty">No usage yet.</p></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- a step: its runs, prompt and log -->
+  <div id="step-modal" class="overlay hidden">
+    <div class="modal-card step-card" role="dialog" aria-labelledby="step-title">
+      <header class="modal-head">
+        <span class="asset-path" id="step-title">Step</span>
+        <div class="row">
+          <button id="step-retry" class="ghost small hidden">↻ retry</button>
+          <button id="step-close" class="ghost small" title="Close">✕</button>
+        </div>
+      </header>
+      <div class="step-body">
+        <dl class="kv" id="step-kv"></dl>
+        <p id="step-note" class="small hidden"></p>
+        <h4>Agent runs</h4>
+        <ol id="step-runs" class="plain-list"></ol>
+        <details id="step-prompt-box" class="hidden"><summary>The task prompt the agent was given</summary><pre id="step-prompt"></pre></details>
+        <h4>Log</h4>
+        <div id="step-log" class="step-log"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- project instructions -->
+  <div id="instructions-modal" class="overlay hidden">
+    <form id="instructions-form" class="modal-card small-card" role="dialog" aria-labelledby="instructions-title">
+      <div class="claude-body">
+        <h3 id="instructions-title">Instructions for the translators</h3>
+        <p class="small muted">Audience, register, names to keep, anything the agents should know. Steps that start after you save see the new text; steps already running do not.</p>
+        <textarea id="instructions-text" rows="8"></textarea>
+        <div class="row">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" id="instructions-cancel" class="ghost">Cancel</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- asset viewer & review modal -->
+  <div id="asset-modal" class="hidden">
+    <div class="modal-card">
+      <header class="modal-head">
+        <span id="asset-path" class="asset-path"></span>
+        <div class="row">
+          <button id="asset-view-toggle" class="ghost small hidden">📖 reading view</button>
+          <button id="asset-refresh" class="ghost small" title="Reload">↻</button>
+          <button id="asset-close" class="ghost small" title="Close">✕</button>
+        </div>
+      </header>
+      <div id="asset-content" tabindex="0"></div>
+      <div id="asset-quote" class="hidden">
+        <blockquote id="asset-quote-text"></blockquote>
+        <button id="quote-clear" class="ghost small" title="Remove quoted passage">✕</button>
+      </div>
+      <form id="asset-comment-form">
+        <textarea id="asset-comment" rows="2"
+          placeholder="Comment on this file — select text above to quote it. Sent straight to the assistant."></textarea>
+        <button type="submit" class="primary">Send to assistant</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Claude link modal -->
+  <div id="claude-modal" class="hidden">
+    <div class="modal-card claude-card">
+      <header class="modal-head">
+        <span class="asset-path">Claude link</span>
+        <button id="claude-close" class="ghost small" title="Close">✕</button>
+      </header>
+      <div class="claude-body">
+        <dl class="kv" id="claude-kv"></dl>
+        <p id="claude-shadowed" class="muted small hidden">This container gets its credential from its environment
+          (API key or token), which outranks a web sign-in. Clear that setting and restart to sign in here instead.</p>
+
+        <form id="claude-steps" class="claude-steps hidden">
+          <p><b>1.</b> Open Claude’s sign-in and approve access with the account that has your subscription.</p>
+          <a id="claude-link" class="button-like primary wide" href="#" target="_blank" rel="noreferrer">Open Claude sign-in ↗</a>
+          <p><b>2.</b> Claude shows a code. Copy it and paste it here.</p>
+          <input id="claude-code" type="text" placeholder="Paste the code" autocomplete="off" autocorrect="off" spellcheck="false" />
+          <div class="row">
+            <button type="submit" id="claude-submit" class="primary">Link Claude</button>
+            <button type="button" id="claude-cancel" class="ghost">Cancel</button>
+          </div>
+        </form>
+
+        <div id="claude-actions" class="row">
+          <button id="claude-signin" class="primary">Sign in with Claude</button>
+          <button id="claude-signout" class="ghost danger hidden">Sign out of Claude</button>
+        </div>
+        <p id="claude-msg" class="small hidden" role="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- passkey setup prompt (after a password sign-in with no passkey yet) -->
+  <div id="passkey-setup" class="overlay hidden">
+    <div class="modal-card small-card" role="dialog" aria-labelledby="passkey-setup-title">
+      <div class="claude-body">
+        <h3 id="passkey-setup-title">Protect lexis with a passkey</h3>
+        <p>lexis is reachable from the internet. A passkey (Face ID, Touch ID, Windows Hello, your phone or a
+          security key) is far stronger than a password and can't be phished.</p>
+        <p class="muted small">The password keeps working as a backup, for a device without your passkey.</p>
+        <label class="small">Name <input type="text" id="passkey-setup-name" placeholder="e.g. MacBook, iPhone" maxlength="60" /></label>
+        <div class="row">
+          <button id="passkey-setup-create" class="primary">Create passkey</button>
+          <button id="passkey-setup-later" class="ghost">Not now</button>
+        </div>
+        <p id="passkey-setup-msg" class="small hidden" role="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- security: passkeys and sessions -->
+  <div id="security-modal" class="overlay hidden">
+    <div class="modal-card claude-card" role="dialog" aria-labelledby="security-title">
+      <header class="modal-head">
+        <span class="asset-path" id="security-title">Security</span>
+        <button id="security-close" class="ghost small" title="Close">✕</button>
+      </header>
+      <div class="claude-body">
+        <p id="security-summary" class="small"></p>
+        <div class="pane-head"><h3>Passkeys</h3><button id="passkey-add" class="ghost small">＋ Add a passkey</button></div>
+        <ul id="passkey-list" class="plain-list"></ul>
+        <div class="pane-head"><h3>Signed-in browsers</h3><button id="sessions-revoke-others" class="ghost small">Sign out all others</button></div>
+        <ul id="session-list" class="plain-list"></ul>
+        <p id="security-msg" class="small hidden" role="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- step-up: confirm it's you before changing how you sign in -->
+  <div id="stepup-modal" class="overlay hidden">
+    <form id="stepup-form" class="modal-card small-card" role="dialog" aria-labelledby="stepup-title">
+      <div class="claude-body">
+        <h3 id="stepup-title">Confirm it's you</h3>
+        <p class="small">Enter the password to confirm this change.</p>
+        <input type="password" id="stepup-password" autocomplete="current-password" placeholder="Your password" aria-label="Password to confirm" />
+        <div class="row">
+          <button type="submit" class="primary">Confirm</button>
+          <button type="button" id="stepup-cancel" class="ghost">Cancel</button>
+        </div>
+        <p id="stepup-error" class="error-text hidden" role="alert"></p>
+      </div>
+    </form>
+  </div>
+
+  <script src="/vendor/webauthn.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
